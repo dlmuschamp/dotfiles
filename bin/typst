@@ -1,0 +1,105 @@
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+DEFAULT_SEARCH_DIR="/home/luciano/Documents/FreshmanYear"
+TEMP_DIR="$HOME/.config/typst/templates"
+REAL_TYPST="/usr/bin/typst"
+
+# Ensure directories exist
+mkdir -p "$DEFAULT_SEARCH_DIR" "$TEMP_DIR"
+
+# 1. PASSTHROUGH: Let standard Typst commands work normally
+case "$1" in
+    watch|compile|fonts|help|query|update|--version)
+        exec $REAL_TYPST "$@"
+        ;;
+esac
+
+# 2. ARGUMENT HANDLING: Check if we are opening a specific file or just browsing
+if [[ "$1" == "open" || -z "$1" ]]; then
+    SEARCH_QUERY=""
+else
+    SEARCH_QUERY="$1"
+fi
+
+# 3. INTERACTIVE NAVIGATION (Fuzzy Finder Loop)
+CURRENT_PATH="$DEFAULT_SEARCH_DIR"
+
+while true; do
+    # Logic: find subfolders -> pipe into fzf -> store result in SELECTED
+    SELECTED=$( (echo ". (Select Current Folder)"; find "$CURRENT_PATH" -maxdepth 1 -type d ! -path "$CURRENT_PATH" -exec basename {} \;) | fzf \
+        --header="[ENTER] Navigate/Select | [ESC] Go Back | [CTRL-C] Exit
+Location: ${CURRENT_PATH#$HOME/}. You can edit the typst script at /home/luciano/bin/typst" \
+        --prompt="Navigate: ")
+
+    # If ESC is pressed (SELECTED is empty), go back one directory
+    if [[ -z "$SELECTED" ]]; then
+        if [[ "$CURRENT_PATH" == "$DEFAULT_SEARCH_DIR" ]]; then
+            echo "Exiting..."; exit 0
+        fi
+        CURRENT_PATH=$(dirname "$CURRENT_PATH")
+        continue
+    fi
+
+    # If 'Select Current' is chosen, we stop navigating
+    if [[ "$SELECTED" == ". (Select Current Folder)" ]]; then
+        TARGET_DIR="$CURRENT_PATH"
+        break
+    fi
+
+    # Otherwise, update the path and keep looping
+    CURRENT_PATH="$CURRENT_PATH/$SELECTED"
+done
+
+# 4. FILE SELECTION (Fuzzy Finder for files)
+cd "$TARGET_DIR" || exit
+
+# --select-1: auto-picks if there is only 1 match
+# --exit-0: auto-picks if there are 0 matches (uses your query as the name)
+# --print-query: returns whatever you typed into the search bar
+FILE=$(ls *.typ 2>/dev/null | fzf --query="$SEARCH_QUERY" --select-1 --exit-0 --print-query | tail -n 1)
+
+# Cleanup naming (add extension if missing)
+[[ "$FILE" != *.typ ]] && FILE="$FILE.typ"
+FULL_PATH="$TARGET_DIR/$FILE"
+PDF_PATH="${FULL_PATH%.typ}.pdf"
+
+# Get the current folder name (e.g., "MATH53" or "Arbor Live")
+COURSE_NAME=$(basename "$TARGET_DIR")
+
+# Get the parent folder name (e.g., "Spring Quarter")
+PARENT_FOLDER=$(basename "$(dirname "$TARGET_DIR")")
+
+# 5. TEMPLATE ENGINE: Select branding based on folder name
+TEMPLATE="General.typ"
+[[ "$FULL_PATH" == *"Arbor"* ]] && TEMPLATE="Arbor.typ"
+
+if [[ ! -f "$FULL_PATH" ]]; then
+    if [[ -f "$TEMP_DIR/$TEMPLATE" ]]; then
+        # Seed the template and replace placeholders
+        sed "s/\$DATE/$(date +'%d %B %Y')/g
+            s/\$TITLE/${FILE%.typ}/g; 
+            s/\$COURSE/$COURSE_NAME/g; 
+            s/\$QUARTER/$PARENT_FOLDER/g" "$TEMP_DIR/$TEMPLATE" > "$FULL_PATH"
+    else
+        echo "= ${FILE%.typ}" > "$FULL_PATH"
+    fi
+fi
+
+# 6. LAUNCH LIVE ENVIRONMENT
+# Launching in the background (&) allows Neovim to take the foreground.
+$REAL_TYPST watch "$FULL_PATH" > /dev/null 2>&1 &
+WATCH_PID=$!
+
+# Sleep briefly so Typst can generate the PDF before Sioyek tries to read it
+sleep 0.5
+sioyek --new-window "$PDF_PATH" > /dev/null 2>&1 &
+SIOYEK_PID=$!
+
+# 7. OPEN EDITOR
+nvim "$FULL_PATH"
+
+# 8. CLEANUP: When Neovim closes, kill the background processes
+kill $WATCH_PID $SIOYEK_PID
