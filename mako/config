@@ -3,3 +3,4 @@ include=~/.local/share/omarchy/default/mako/core.ini
 text-color=#bebebe
 border-color=#e68e0d
 background-color=#121212
+border-radius=100
