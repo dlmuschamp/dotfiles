@@ -15,11 +15,16 @@ size = 10
 [window]
 padding.x = 14
 padding.y = 14
-decorations = "None"
+decorations = "Full"
 
 [colors.primary]
 background = "#000000"
 foreground = "#FFFFFF"
+
+[cursor]
+style = {shape="Beam", blinking="On"}
+blink_interval=325
+thickness=0.25
 
 [keyboard]
 bindings = [
