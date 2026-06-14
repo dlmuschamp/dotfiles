@@ -1,8 +1,11 @@
 include=~/.local/share/omarchy/default/mako/core.ini
 
-text-color=#bebebe
-border-color=#e68e0d
-background-color=#121212
-border-radius=10
+font=FiraCode Nerd Font 10
+background-color=#000000ff
+text-color=#ffffffff
+border-color=#e68e0dff
+border-radius=0
 border-size=1
-progress-color=source #5588AAFF
+
+progress-color=#e68e0dff
+
