@@ -19,6 +19,7 @@ decorations = "None"
 
 [colors.primary]
 background = "#000000"
+foreground = "#FFFFFF"
 
 [keyboard]
 bindings = [
