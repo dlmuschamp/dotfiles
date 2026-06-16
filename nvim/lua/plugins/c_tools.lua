@@ -34,13 +34,14 @@ return {
       },
     },
   },
-  -- 3. Disable blink.cmp's native signature window so it doesn't fight ray-x
+  -- 3. Force-disable Noice's signature help (The Bulletproof Method)
   {
-    "saghen/blink.cmp",
-    opts = {
-      signature = {
-        enabled = false,
-      },
-    },
+    "folke/noice.nvim",
+    opts = function(_, opts)
+      -- Intercept Omarchy's existing configuration and forcefully turn off the signature module
+      opts.lsp = opts.lsp or {}
+      opts.lsp.signature = opts.lsp.signature or {}
+      opts.lsp.signature.enabled = false
+    end,
   },
 }
