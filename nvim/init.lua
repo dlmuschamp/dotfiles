@@ -4,7 +4,7 @@ require("lazy").setup("plugins")
 require("lspconfig").tinymist.setup({})
 vim.opt.number = true
 vim.opt.relativenumber = true
-
+vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
 -- Auto-save on TextChange or leaving Insert mode
 vim.api.nvim_create_autocmd({ "InsertLeave", "TextChanged" }, {
   pattern = { "*.typ" },

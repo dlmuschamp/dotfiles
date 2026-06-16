@@ -20,15 +20,16 @@ return {
     "danymat/neogen",
     config = function()
       require("neogen").setup({
-        snippet_engine = "luasnip", -- Standard engine for most pre-configured setups
+        snippet_engine = "nvim",
       })
     end,
     -- Creating a custom hotkey to trigger the generation
     keys = {
       {
         "<leader>cd",
+        -- Force Neogen to ONLY look for functions, never files
         function()
-          require("neogen").generate()
+          require("neogen").generate({ type = "func" })
         end,
         desc = "Generate [C]ode [D]ocstring",
       },
@@ -42,6 +43,25 @@ return {
       opts.lsp = opts.lsp or {}
       opts.lsp.signature = opts.lsp.signature or {}
       opts.lsp.signature.enabled = false
+    end,
+  },
+  -- 4. Inlay Hint Management
+  {
+    "neovim/nvim-lspconfig",
+    init = function()
+      -- 1. Create a clean, custom command so you don't need a hotkey
+      vim.api.nvim_create_user_command("ToggleHints", function()
+        local current = vim.lsp.inlay_hint.is_enabled()
+        vim.lsp.inlay_hint.enable(not current)
+      end, {})
+
+      -- 2. Force hints OFF automatically every time you open a file
+      vim.api.nvim_create_autocmd("LspAttach", {
+        callback = function(args)
+          -- Turn off inlay hints for the current buffer
+          vim.lsp.inlay_hint.enable(false, { bufnr = args.buf })
+        end,
+      })
     end,
   },
 }
