@@ -4,8 +4,6 @@ This is a repo containing all customized dotfiles for my most used applications.
 
 The configs include changes to:
 ```
-```
-```
 - alacritty
 - hypr
 - mako
