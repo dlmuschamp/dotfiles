@@ -3,7 +3,7 @@
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-DEFAULT_SEARCH_DIR="/home/luciano/Documents/SophomoreYear/"
+DEFAULT_SEARCH_DIR="/home/luciano/Storage/Documents/SophomoreYear/"
 TEMP_DIR="$HOME/.config/typst/templates"
 REAL_TYPST="/usr/bin/typst"
 
