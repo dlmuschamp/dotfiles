@@ -10,7 +10,7 @@ osc52 = "CopyPaste"
 normal = { family = "FiraCode Nerd Font Mono", style = "Regular" }
 bold = { family = "FiraCode Nerd Font Mono", style = "Bold" }
 italic = { family = "FiraCode Nerd Font Mono", style = "Italic" }
-size = 10
+size = 12
 
 [window]
 padding.x = 14
