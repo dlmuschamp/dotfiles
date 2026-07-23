@@ -7,6 +7,8 @@ C_FLAGS = -g -O0 -std=gnu99 -lsystemd
 EPOLL_MNGR_PATH = src/epoll_manager.c
 TARGET = bin/epoll_manager
 
+clal: clean all
+
 all: $(TARGET)
 
 $(TARGET): $(EPOLL_MNGR_PATH)

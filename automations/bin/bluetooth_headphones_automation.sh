@@ -8,13 +8,18 @@ readonly CONNECT_STATUS=$3
 # Constants
 readonly SLEEP_TIME_SEC=0.5
 readonly DEFAULT_VOL_PERCENT=0.3
+readonly NOTIFY_TIME_MS=5000
+
+# Text 
 readonly EQ_FAIL_MSG="Failed to apply an easyeffects eq."
+readonly DAEMON_NAME="Bluetooth Automation Daemon"
 
 # Globals (to be overwritten)
 DEV_AUDIO_SINK_ID=-1
 
 # Fatal error if unable to set sink.
 init_sink() {
+  sleep 2 #let sink udpate
   DEV_AUDIO_SINK_ID=$(wpctl status | grep "$DEV_ALIAS" | grep "vol" | grep -oE '[0-9]+\.' | head -n 1 | tr -d '.')
   [[ -n "$DEV_AUDIO_SINK_ID" ]] && echo "Located the device audio sink ID Successfully: $DEV_AUDIO_SINK_ID" \
   || { echo "Failed to locate the device audio sink ID, exiting."; exit 1; }
@@ -52,19 +57,23 @@ init_spotify() {
 }
 
 init_on() {
+  notify-send -a "$DAEMON_NAME" -t "$NOTIFY_TIME_MS" -i bluetooth-active "Initializing device." "Initializing the connected bleutooth device and applying the desired configuration."
   echo "Initializing..."
   init_sink
   set_vol
   init_eq
   init_spotify
   echo "Successfully initialized."
+  notify-send -a "$DAEMON_NAME" -t "$NOTIFY_TIME_MS" -i bluetooth-active "Successfully Initialized."
 }
 
 init_off() {
+  notify-send -a "$DAEMON_NAME" -t "$NOTIFY_TIME_MS" -i bluetooth-disable "Shutting down device." "Shutting down the connected bleutooth device and reseting to default configuration."
   pkill -f spotify || true # || true prevents script from failing if spotify is already dead
   set_vol 0 "Reset"
   easyeffects -l "ARIA"
   echo "Shutdown sequence successful."
+  notify-send -a "$DAEMON_NAME" -t "$NOTIFY_TIME_MS" -i bluetooth-disable "Shut down successful." 
 }
 
 # Main()
