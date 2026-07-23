@@ -16,7 +16,7 @@ const int EPOLL_TIMEOUT = -1;
 
 // Statics
 static const char *BT_AUTOMATION_SCRIPT_PATH =
-    "./bin/bluetooth_headphones_automation.sh";
+    "/home/luciano/dotfiles/automations/bin/bluetooth_headphones_automation.sh";
 static const char *BLUETOOTH_MATCH_FILTERS = "type='signal',sender='org.bluez'";
 
 // ensure alias and dev_path are inputted EXACTLY as the commands listed below
