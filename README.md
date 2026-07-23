@@ -1,28 +1,27 @@
 # Dotfiles
 
-This is a repo containing all customized dotfiles for my most used applications. They are mainly just quality of life tweaks to the default Omarchy set-up. This repo is essentially acting as a back-up so I can eventually use the same configuration on my desktop.
+This repository contains the configuration files and custom automation scripts for my Omarchy (Arch Linux) environment. It serves as a live backup and a sync point for eventually migrating this configuration to a desktop setup.
 
-The configs include changes to:
+## Configurations
 
-```
-- alacritty
-- hypr
-- mako
-- nvim 
-- sioyek 
-- tmux 
-- waybar
-```
+Quality-of-life enhancements, keybindings, and theming for my core workflow tools:
 
-and some custom shell scripts I had for hardware events like plugging in headphones to activate spotify, swapping power profiles based on current battery percent, and enabling a "tablet" mode in:
+* **Terminal & Multiplexer:** Alacritty, Tmux
+* **Editor & Viewer:** Neovim, Sioyek
+* **Wayland & UI:** Hyprland, Waybar, Mako
 
-```
-- hardwareListner.sh 
-```
+## Custom Automations (`automations/`)
 
-Currently refactoring scripts in the new **automations/** to more broadly to use hardware interrupts instead of constantly polling daemons.
+The automation stack is actively being refactored to use **event-driven hardware interrupts** rather than resource-heavy polling daemons.
 
-There is also a custom typst configuration in ```/bin``` that essentially allows me to run ```typst document_name``` and open an instance of nvim and sioyek to view the document as I edit it live. There is a general template for my typst documents located in ```typst/```.
+* **Bluetooth Audio Daemon (`epoll_manager`):** A custom Linux-native C daemon utilizing `epoll` that listens to BlueZ D-Bus signals. Upon connection or disconnection of specific headsets (like the Moondrop Edge or Aria), it safely forks a Bash script to seamlessly route Pipewire audio sinks, apply device-specific parametric EQs via EasyEffects, and dispatch Spotify to a designated Hyprland workspace.
+* **Legacy Polling (`hardwareListener.sh`):** Shell scripts managing power profiles based on battery percentage and toggling a "tablet" mode (currently being migrated to the event-driven architecture).
 
-**Future Plans**
-I plan on creating a new branch just for the desktop but will keep the main branch for my laptop configuration.
+## Typst Workflow (`bin/typst`)
+
+A custom shell wrapper that streamlines typesetting. Running `typst [document_name]` automatically scaffolds the file from a core template (`typst/templates/write_up.typ`) and spins up side-by-side instances of Neovim and Sioyek for live-preview editing.
+
+## Future Plans
+
+* Create a dedicated desktop branch while keeping `main` for the active laptop configuration.
+* Complete the migration of all legacy polling scripts to the new C-based `epoll` interrupt system.
