@@ -1,6 +1,6 @@
 include=~/.local/share/omarchy/default/mako/core.ini
 
-font=FiraCode Nerd Font 10
+font=FiraCode Nerd Font 11
 background-color=#000000ff
 text-color=#ffffffff
 border-color=#e68e0dff

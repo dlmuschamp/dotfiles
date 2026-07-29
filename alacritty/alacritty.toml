@@ -7,10 +7,10 @@ TERM = "xterm-256color"
 osc52 = "CopyPaste"
 
 [font]
-normal = { family = "FiraCode Nerd Font Mono" }
-bold = { family = "FiraCode Nerd Font Mono" }
-italic = { family = "FiraCode Nerd Font Mono" }
-size = 12
+normal = { family = "JetBrainsMonoNL Nerd Font Mono" }
+bold = { family = "JetBrainsMonoNL Nerd Font Mono" }
+italic = { family = "JetBrainsMonoNL Nerd Font Mono" }
+size = 13
 
 [window]
 padding.x = 14
