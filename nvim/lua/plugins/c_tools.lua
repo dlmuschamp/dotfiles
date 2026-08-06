@@ -63,5 +63,16 @@ return {
         end,
       })
     end,
+    opts = {
+      servers = {
+        clangd = {
+          cmd = {
+            "clangd",
+            "--background-index",
+            "--query-driver=/home/damian-win/.espressif/tools/**/bin/*",
+          },
+        },
+      },
+    },
   },
 }
