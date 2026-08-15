@@ -1,0 +1,4 @@
+#!/bin/bash
+# spotify-launcher installs the real client under a different name; keep the
+# historical `spotify` command that autostart and bindings expect.
+exec spotify-launcher "$@"

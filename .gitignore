@@ -6,3 +6,6 @@ hypr/hyprland.conf
 
 # Timestamped backups created by ./bootstrap.
 *.pre-dotfiles.*
+
+# Local Cursor conversation id for resuming after a reboot.
+session-token.txt
