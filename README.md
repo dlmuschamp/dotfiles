@@ -34,8 +34,8 @@ overwritten.
 Required Arch packages:
 
 ```text
-quickshell jq hyprlock hypridle inotify-tools xdg-terminal-exec
-ttf-jetbrains-mono-nerd noto-fonts-emoji
+quickshell jq hyprlock hypridle hyprsunset hyprpicker inotify-tools
+xdg-terminal-exec nautilus ttf-jetbrains-mono-nerd noto-fonts-emoji
 ```
 
 The bar, menus, and panels draw their icons from Nerd Font private-use
