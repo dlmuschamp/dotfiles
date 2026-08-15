@@ -8,7 +8,43 @@ Quality-of-life enhancements, keybindings, and theming for my core workflow tool
 
 * **Terminal & Multiplexer:** Alacritty, Tmux
 * **Editor & Viewer:** Neovim, Sioyek
-* **Wayland & UI:** Hyprland, Waybar, Mako
+* **Wayland & UI:** Hyprland Lua configuration, Omarchy's Quickshell UI,
+  Hyprlock, and Hypridle
+
+The Omarchy runtime supplies the rice engine, menus, hardware panels, OSD,
+notifications, and polkit UI. This repository supplies the authoritative
+personal configuration. Omarchy's preinstalled applications, system
+provisioners, theme packs, screensaver, background switcher, and branded lock
+screen are not enabled.
+
+## Deployment
+
+Run the bootstrap from any checkout location:
+
+```sh
+./bootstrap
+```
+
+It pins the user-space Omarchy runtime under `~/.local/share/omarchy`, then
+symlinks the tracked configurations into `~/.config`, personal commands into
+`~/.local/bin`, and the tracked font files into `~/.local/share/fonts`.
+Existing non-symlinked targets are moved to timestamped backups rather than
+overwritten.
+
+Required Arch packages:
+
+```text
+quickshell jq hyprlock hypridle inotify-tools xdg-terminal-exec
+ttf-jetbrains-mono-nerd noto-fonts-emoji
+```
+
+The bar, menus, and panels draw their icons from Nerd Font private-use
+codepoints, and `fontconfig/fonts.conf` points the `monospace` alias at
+`JetBrainsMono Nerd Font` so those glyphs resolve. `fonts/omarchy.ttf` supplies
+the menu glyph.
+
+Log out and back in after the first deployment so UWSM loads the tracked
+environment.
 
 ## Custom Automations (`automations/`)
 

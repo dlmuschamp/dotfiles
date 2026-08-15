@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# bluetoothctl exits when stdin reaches EOF, so keep its control input open
+# while consuming the event stream.
+bluetoothctl --monitor < <(sleep infinity) | while IFS= read -r event; do
+  if [[ $event =~ \[CHG\]\ Device\ ([0-9A-Fa-f:]+)\ Connected:\ (yes|no) ]]; then
+    address=${BASH_REMATCH[1]}
+    state=${BASH_REMATCH[2]}
+    alias=$(bluetoothctl info "$address" 2>/dev/null | awk -F': ' '/^[[:space:]]*Alias:/ { print $2; exit }')
+    [[ -n $alias ]] || alias=$address
+
+    if [[ $state == yes ]]; then
+      notify-send -a Bluetooth -i bluetooth-active "Bluetooth connected" "$alias"
+    else
+      notify-send -a Bluetooth -i bluetooth-disabled "Bluetooth disconnected" "$alias"
+    fi
+  fi
+done

@@ -1,0 +1,19 @@
+#!/bin/bash
+
+set -euo pipefail
+
+state_dir="${XDG_RUNTIME_DIR:-/tmp}/dotfiles-idle"
+state_file="$state_dir/brightness"
+mkdir -p "$state_dir"
+
+# Do not overwrite the pre-dim value if the idle event fires twice.
+[[ -s $state_file ]] && exit 0
+
+IFS=, read -r device _class current _max percentage < <(brightnessctl -m 2>/dev/null) || exit 0
+[[ $current =~ ^[0-9]+$ && $percentage =~ ^[0-9]+%$ ]] || exit 0
+
+printf '%s\t%s\n' "$device" "$current" >"$state_file"
+
+if (( ${percentage%\%} > 10 )); then
+  brightnessctl -q -d "$device" set 10%
+fi

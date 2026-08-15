@@ -1,1 +1,8 @@
 .git_hidden_message
+
+# Hyprland rewrites this stub on every startup even though hyprland.lua is the
+# config it actually loads.
+hypr/hyprland.conf
+
+# Timestamped backups created by ./bootstrap.
+*.pre-dotfiles.*

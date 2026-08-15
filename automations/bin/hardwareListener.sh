@@ -10,8 +10,8 @@ sleep 3
     if echo "$line" | grep -q "switch tablet-mode state 1"; then
       notify-send "📱 Tablet Mode" "Disabling trackpad & optimizing for touch." -i tablet
 
-      # Kill the status bar for full screen drawing
-      killall waybar
+      # Hide the integrated bar for full-screen drawing.
+      omarchy-toggle-bar off
 
       # Disables the physical trackpad
       hyprctl keyword "device[gxtp5100:00-27c6:01e0-touchpad]:enabled" false
@@ -30,8 +30,8 @@ sleep 3
     if echo "$line" | grep -q "switch tablet-mode state 0"; then
       notify-send "💻 Laptop Mode" "Re-enabling trackpad." -i computer
 
-      # Bring the status bar back
-      waybar > /dev/null 2>&1 &
+      # Bring the integrated bar back.
+      omarchy-toggle-bar on
 
       # Dynamically finds the stylus battery path
       stylus_path=$(upower -e | grep -m 1 'wacom_battery')

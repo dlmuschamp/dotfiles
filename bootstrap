@@ -1,0 +1,86 @@
+#!/bin/bash
+
+set -euo pipefail
+
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+bin_home="$HOME/.local/bin"
+runtime_dir="$data_home/omarchy"
+runtime_commit=$(<"$repo_dir/omarchy/runtime.commit")
+timestamp=$(date +%Y%m%d%H%M%S)
+
+mkdir -p "$config_home" "$data_home" "$bin_home"
+
+backup_path() {
+  local path=$1
+  local backup="${path}.pre-dotfiles.${timestamp}"
+  mv -- "$path" "$backup"
+  printf 'Backed up %s -> %s\n' "$path" "$backup"
+}
+
+link_path() {
+  local source=$1
+  local target=$2
+
+  mkdir -p "$(dirname -- "$target")"
+
+  if [[ -L $target ]]; then
+    if [[ $(readlink -f -- "$target") == "$(readlink -f -- "$source")" ]]; then
+      return
+    fi
+    rm -- "$target"
+  elif [[ -e $target ]]; then
+    backup_path "$target"
+  fi
+
+  ln -s -- "$source" "$target"
+  printf 'Linked %s -> %s\n' "$target" "$source"
+}
+
+install_runtime() {
+  if [[ ! -d $runtime_dir/.git ]]; then
+    if [[ -e $runtime_dir || -L $runtime_dir ]]; then
+      backup_path "$runtime_dir"
+    fi
+    git clone https://github.com/basecamp/omarchy.git "$runtime_dir"
+  fi
+
+  if ! git -C "$runtime_dir" diff --quiet ||
+     ! git -C "$runtime_dir" diff --cached --quiet; then
+    printf 'Refusing to replace modified Omarchy runtime: %s\n' "$runtime_dir" >&2
+    exit 1
+  fi
+
+  git -C "$runtime_dir" fetch origin "$runtime_commit"
+  git -C "$runtime_dir" checkout --detach "$runtime_commit"
+}
+
+install_runtime
+
+for config in alacritty fontconfig hypr nvim omarchy sioyek tmux uwsm; do
+  link_path "$repo_dir/$config" "$config_home/$config"
+done
+
+link_path \
+  "$repo_dir/xdg-terminal-exec/hyprland-xdg-terminals.list" \
+  "$config_home/hyprland-xdg-terminals.list"
+link_path "$repo_dir/nvim/.neoconf.json" "$HOME/.neoconf.json"
+
+for command in "$repo_dir"/bin/* "$repo_dir"/automations/bin/*; do
+  [[ -f $command ]] || continue
+  chmod +x "$command"
+  link_path "$command" "$bin_home/$(basename -- "$command")"
+done
+
+chmod +x "$repo_dir/omarchy/bar/scripts/wacom-pen-battery"
+
+# omarchy.ttf carries the private-use menu glyph; the STIX families back the
+# Typst documents.
+while IFS= read -r font; do
+  link_path "$font" "$data_home/fonts/$(basename -- "$font")"
+done < <(find "$repo_dir/fonts" -type f -name '*.ttf' | sort)
+
+fc-cache -f "$data_home/fonts" >/dev/null
+
+printf '\nDotfiles deployed. Log out and back in to load the UWSM environment.\n'

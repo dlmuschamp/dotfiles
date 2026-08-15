@@ -1,7 +1,9 @@
 #!/bin/bash
 
 #GLOBALS
-DOCUMENT_TEMPLATE=~/dotfiles/typst/templates/write_up.typ
+SCRIPT_PATH=$(readlink -f -- "${BASH_SOURCE[0]}")
+DOTFILES_DIR=$(cd -- "$(dirname -- "$SCRIPT_PATH")/.." && pwd)
+DOCUMENT_TEMPLATE="$DOTFILES_DIR/typst/templates/write_up.typ"
 CURRENT_DIR=$PWD
 
 # If first argument is a known typst command, pass it through to the real typst binary
@@ -16,7 +18,7 @@ SEARCH_QUERY=$(fd -i -tf -etyp . ~ 2>/dev/null | \
   --expect=ctrl-n \
   --footer="[ENTER] Open | [CTRL-N] Force New | [ESC] Exit.
 Current Path: $CURRENT_DIR.
-You can edit this script at ~/dotfiles/bin/typst." \
+You can edit this script at $DOTFILES_DIR/bin/typst." \
   --print-query \
   --layout=reverse \
   --info=inline \

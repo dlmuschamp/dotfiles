@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -euo pipefail
+
+state_file="${XDG_RUNTIME_DIR:-/tmp}/dotfiles-idle/brightness"
+
+hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1 || true
+
+if [[ -s $state_file ]]; then
+  IFS=$'\t' read -r device brightness <"$state_file"
+  if [[ -n $device && $brightness =~ ^[0-9]+$ ]]; then
+    brightnessctl -q -d "$device" set "$brightness" || true
+  fi
+  rm -f "$state_file"
+fi

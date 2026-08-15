@@ -1,0 +1,27 @@
+{
+  // Keep the Omarchy interaction model while removing app-store, updater,
+  // theme/background, screensaver, and branded-about surfaces.
+  "install": {"when":"false"},
+  "remove": {"when":"false"},
+  "update": {"when":"false"},
+  "about": {"when":"false"},
+  "learn.omarchy": {"when":"false"},
+  "learn.community": {"when":"false"},
+
+  "trigger.emoji": {"when":"false"},
+  "trigger.toggle.idle-lock": {"when":"false"},
+  "trigger.toggle.screensaver": {"when":"false"},
+
+  "style.theme": {"when":"false"},
+  "style.background": {"when":"false"},
+  "style.unlock": {"when":"false"},
+  "style.font": {"when":"false"},
+  "style.screensaver": {"when":"false"},
+  "style.about": {"when":"false"},
+
+  "setup.default.agent": {"when":"false"},
+
+  // The system menu uses the unbranded Hyprlock setup from this repository.
+  "system.lock": {"action":"dotfiles-lock"},
+  "system.screensaver": {"when":"false"}
+}

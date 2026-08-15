@@ -16,7 +16,7 @@ const int EPOLL_TIMEOUT = -1;
 
 // Statics
 static const char *BT_AUTOMATION_SCRIPT_PATH =
-    "/home/luciano/dotfiles/automations/bin/bluetooth_headphones_automation.sh";
+    "bluetooth_headphones_automation.sh";
 static const char *BLUETOOTH_MATCH_FILTERS = "type='signal',sender='org.bluez'";
 
 // ensure alias and dev_path are inputted EXACTLY as the commands listed below
@@ -52,9 +52,9 @@ void exec_dev_automation_bash(const char *script_path, const char *device_path,
       perror("Failed to fork.");
       break;
     case 0:
-      execl("/bin/bash", "bash", script_path, device_path, device_alias,
-            cur_dev_state, (char *)NULL);
-      perror("execl failed.");
+      execlp(script_path, script_path, device_path, device_alias, cur_dev_state,
+             (char *)NULL);
+      perror("execlp failed.");
       _exit(-1);
       break;
     default: {

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -euo pipefail
+
+device=$(upower -e 2>/dev/null | awk '/battery_wacom/ { print; exit }')
+[[ -n $device ]] || exit 0
+
+percentage=$(upower -i "$device" 2>/dev/null | awk '/percentage:/ { print $2; exit }')
+[[ -n $percentage ]] || exit 0
+
+jq -nc --arg text "󰏳 $percentage" --arg tooltip "Wacom pen battery: $percentage" \
+  '{text: $text, tooltip: $tooltip}'
