@@ -16,7 +16,9 @@ After pulling: `./bootstrap` (links), then `doom sync` if `init.el` /
 `packages.el` changed. Restart Emacs.
 
 OS packages this setup expects: `emacs-wayland`, `aspell`, `aspell-en`,
-`clang` (clangd + clang-format), `libvterm`, `typst`, `ripgrep`, `fd`.
+`clang` (clangd + clang-format), `libvterm`, `cmake` (vterm build), `typst`,
+`ripgrep`, `fd`, `shfmt`, `shellcheck`, `discount` (`markdown` for preview),
+`ttf-nerd-fonts-symbols-mono`, and AUR `ttf-symbola` (Emacs fallback font).
 
 ## Enabled modules (beyond Doom defaults)
 
