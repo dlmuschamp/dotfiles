@@ -1,5 +1,5 @@
 # Portable user-space Omarchy runtime and personal command paths.
 export OMARCHY_PATH="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy"
-export PATH="$HOME/.local/bin:$OMARCHY_PATH/bin:$PATH"
+export PATH="$HOME/.local/bin:$OMARCHY_PATH/bin:${XDG_CONFIG_HOME:-$HOME/.config}/emacs/bin:$PATH"
 export TERMINAL=xdg-terminal-exec
 export EDITOR=nvim

@@ -58,7 +58,22 @@ install_runtime() {
 
 install_runtime
 
-for config in alacritty fontconfig hypr nvim omarchy sioyek tmux uwsm; do
+# Doom Emacs framework lives outside the repo (its own git checkout). User
+# config is tracked under doom/ and linked to XDG_CONFIG_HOME/doom.
+install_doom_emacs() {
+  local emacs_dir="$config_home/emacs"
+  if [[ ! -d $emacs_dir/.git ]]; then
+    if [[ -e $emacs_dir || -L $emacs_dir ]]; then
+      backup_path "$emacs_dir"
+    fi
+    git clone --depth 1 https://github.com/doomemacs/doomemacs "$emacs_dir"
+  fi
+  link_path "$emacs_dir/bin/doom" "$bin_home/doom"
+}
+
+install_doom_emacs
+
+for config in alacritty doom fontconfig hypr nvim omarchy sioyek tmux uwsm; do
   link_path "$repo_dir/$config" "$config_home/$config"
 done
 

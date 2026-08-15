@@ -7,9 +7,10 @@ This repository contains the configuration files and custom automation scripts f
 Quality-of-life enhancements, keybindings, and theming for my core workflow tools:
 
 * **Terminal & Multiplexer:** Alacritty, Tmux
-* **Editor & Viewer:** Neovim, Sioyek
+* **Editor & Viewer:** Neovim, Doom Emacs, Sioyek
 * **Wayland & UI:** Hyprland Lua configuration, Omarchy's Quickshell UI,
   Hyprlock, and Hypridle
+* **Writing:** Org mode with Typst math (see [`doom/README.md`](doom/README.md))
 
 The Omarchy runtime supplies the rice engine, menus, hardware panels, OSD,
 notifications, and polkit UI. This repository supplies the authoritative
