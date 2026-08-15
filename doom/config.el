@@ -89,9 +89,18 @@
      :math-nodes (typst-overlay--sort-math-nodes (nreverse math-nodes))
      :first-error nil)))
 
+(defun luciano/typst-overlay-maybe-enable ()
+  "Enable `typst-overlay-mode' in real Org buffers only.
+Modes derived from Org (`doom-docs-mode', for one) get the Typst tree-sitter
+analyzer, which fails without a parser. An error here would abort the rest of
+`org-mode-hook' and leave the buffer half-initialized, so contain it."
+  (when (eq major-mode 'org-mode)
+    (with-demoted-errors "typst-overlay: %S"
+      (typst-overlay-mode +1))))
+
 (use-package! typst-overlay
   :commands (typst-overlay-mode typst-overlay-refresh)
-  :hook ((org-mode . typst-overlay-mode)
+  :hook ((org-mode . luciano/typst-overlay-maybe-enable)
          (typst-ts-mode . typst-overlay-mode)
          (after-save . typst-overlay-save-refresh))
   :config
@@ -100,7 +109,7 @@
     "Use multiline-capable Org math detection."
     :after #'typst-overlay--enable
     (when (derived-mode-p 'org-mode)
-      (setq-local typst-overlay-analyzer #'luciano/typst-overlay-analyze-org)
+      (setq-local typst-overlay--analyzer #'luciano/typst-overlay-analyze-org)
       (typst-overlay-refresh))))
 
 ;; Whenever you reconfigure a package, make sure to wrap your config in an
