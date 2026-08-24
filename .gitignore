@@ -9,3 +9,6 @@ hypr/hyprland.conf
 
 # Local Cursor conversation id for resuming after a reboot.
 session-token.txt
+
+# Doom local secrets (OAuth client secrets, calendar IDs, etc.)
+doom/private/

@@ -1,16 +1,24 @@
 # Doom Emacs
 
-Tracked Doom **user config** (`~/.config/doom` → this directory). The Doom
-framework itself lives at `~/.config/emacs` (cloned by `./bootstrap`, updated
-with `doom upgrade`) and is not in this repo.
+Tracked Doom **user config** (`~/.config/doom` → this directory via
+`./bootstrap`). The Doom framework itself lives at `~/.config/emacs` (cloned
+by `./bootstrap`, updated with `doom upgrade`) and is not in this repo.
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | `init.el` | Enabled Doom modules (`doom!` block) |
-| `config.el` | Personal settings (Org + Typst math, etc.) |
-| `packages.el` | Extra packages (`ox-typst`, `typst-overlay`, `typst-ts-mode`) |
+| `config.el` | Personal settings (Org agenda, GCal hooks, Typst, …) |
+| `packages.el` | Extra packages (`org-gcal`, `ox-typst`, …) |
+| `org-gcal-secrets.el.example` | Template for local OAuth + calendar IDs |
+| `private/` | **Gitignored** — real secrets (never commit) |
+
+```sh
+mkdir -p doom/private
+cp doom/org-gcal-secrets.el.example doom/private/org-gcal-secrets.el
+# edit private/org-gcal-secrets.el with your Google OAuth + calendar IDs
+```
 
 After pulling: `./bootstrap` (links), then `doom sync` if `init.el` /
 `packages.el` changed. Restart Emacs.
@@ -24,6 +32,12 @@ OS packages this setup expects: `emacs-wayland`, `aspell`, `aspell-en`,
 
 - `(lsp +eglot)`, `(cc +lsp +tree-sitter)`, `tree-sitter`
 - `(format +onsave)`, `(spell +aspell)`, `pdf`, `vterm`
+
+## Org + Google Calendar
+
+Org files live in `~/org/` (not in this repo). Captures route to Personal /
+Arbor / School calendars; Canvas is pull-only. OAuth client ID/secret and
+calendar IDs stay in `private/org-gcal-secrets.el`.
 
 ## Org + Typst math
 
