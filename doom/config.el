@@ -73,11 +73,8 @@
       lua-indent-level 8
       yaml-indent-offset 2) ; YAML is unreadable at 8; keep 2
 
-;; Visible ruler at column 80. Soft-wrapping code mid-statement is painful, so
-;; we draw the line instead of auto-wrapping programming buffers. Org/text
-;; still auto-fill (hard wrap) at 80.
-(add-hook 'prog-mode-hook #'display-fill-column-indicator-mode)
-(add-hook 'text-mode-hook #'display-fill-column-indicator-mode)
+;; Soft-wrapping code mid-statement is painful, so we don't auto-wrap
+;; programming buffers. Org/text still auto-fill (hard wrap) at fill-column.
 (add-hook 'text-mode-hook #'auto-fill-mode)
 (add-hook 'org-mode-hook #'auto-fill-mode)
 
@@ -118,7 +115,7 @@
   ;; Flow: TODO → IN_PROGRESS → WAITING_REPLY / NEEDS_REPLY → DONE / CANCELLED.
   (setq org-todo-keywords
         '((sequence "TODO(t)" "IN_PROGRESS(i)" "WAITING_REPLY(w)" "NEEDS_REPLY(r)" "|"
-                    "DONE(d!)" "CANCELLED(c)")))
+           "DONE(d!)" "CANCELLED(c)")))
   (setq org-todo-keyword-faces
         '(("IN_PROGRESS" . +org-todo-active)
           ("WAITING_REPLY" . +org-todo-onhold)
@@ -198,13 +195,12 @@
         (while (and (not found)
                     (re-search-forward
                      (concat "CLOCK: " org-tr-regexp-both) end-pos t))
-          (let* ((line (match-string-no-properties 0))
-                 (cstart (org-time-string-to-time
-                          (match-string-no-properties 1)))
-                 (cend (and (match-string-no-properties 2)
-                            (org-time-string-to-time
-                             (match-string-no-properties 2)))))
-            (when (and cend
+          ;; Capture groups before org-time-string-to-time (it clobbers match-data).
+          (let* ((ts1 (match-string-no-properties 1))
+                 (ts2 (match-string-no-properties 2))
+                 (cstart (and ts1 (org-time-string-to-time ts1)))
+                 (cend (and ts2 (org-time-string-to-time ts2))))
+            (when (and cstart cend
                        (<= (abs (float-time (time-subtract cstart start))) 60)
                        (<= (abs (float-time (time-subtract cend end))) 60))
               (setq found t)))))
@@ -230,12 +226,13 @@ Runs after gcal fetch so shifts away from the laptop still count."
                           ((not (luciano/org--entry-has-clock-covering-p
                                  start end))))
                 (org-clock-find-position nil)
+                ;; org-time-stamp-format already includes […]; do not wrap again.
                 (insert
-                 "CLOCK: ["
+                 "CLOCK: "
                  (format-time-string (org-time-stamp-format t t) start)
-                 "]--["
+                 "--"
                  (format-time-string (org-time-stamp-format t t) end)
-                 "] => "
+                 " => "
                  (org-duration-from-minutes
                   (/ (float-time (time-subtract end start)) 60.0))
                  "\n")
@@ -308,7 +305,9 @@ Runs after gcal fetch so shifts away from the laptop still count."
         org-agenda-restore-windows-after-quit t
         org-agenda-timegrid-use-ampm t
         org-read-date-prefer-future t
-        org-time-stamp-rounding-minutes '(0 5)
+        ;; (create-step . shift-step). Shift step = 15 so agenda M-up/down
+        ;; slides events in quarter-hour increments.
+        org-time-stamp-rounding-minutes '(0 15)
         ;; Do NOT enable org-display-custom-times — 12h display in the file
         ;; breaks org-gcal. Type 12h in the minibuffer; agenda grid shows AM/PM.
         org-startup-with-latex-preview nil
@@ -385,11 +384,13 @@ Runs after gcal fetch so shifts away from the laptop still count."
              (goto-char (point-min))
              (while (re-search-forward
                      (concat "^[ \\t]*CLOCK: " org-tr-regexp-both) nil t)
-               (let* ((cs (org-time-string-to-time (match-string-no-properties 1)))
-                      (ce (and (match-string-no-properties 2)
-                               (org-time-string-to-time
-                                (match-string-no-properties 2)))))
-                 (when (and ce
+               ;; Capture groups first — org-time-string-to-time clobbers match-data
+               ;; (otherwise match-string 2 reads buffer positions 0..4 and errors).
+               (let* ((ts1 (match-string-no-properties 1))
+                      (ts2 (match-string-no-properties 2))
+                      (cs (and ts1 (org-time-string-to-time ts1)))
+                      (ce (and ts2 (org-time-string-to-time ts2))))
+                 (when (and cs ce
                             (time-less-p cs end)
                             (time-less-p start ce))
                    (let* ((clipped-s (if (time-less-p cs start) start cs))
@@ -679,7 +680,7 @@ USE-ALLOTTED non-nil (default) uses calendar block lengths; nil uses CLOCK."
                            (interactive)
                            (luciano/org--weekly-dashboard-buffer
                             (1+ luciano/org-command-chart-week))))
-          (local-set-key (kbd "q") #'quit-window)))
+          (local-set-key (kbd "q") #'luciano/kill-buffer-ask-save)))
       buf))
 
   (defun luciano/org-copy-arbor-timesheet ()
@@ -693,17 +694,74 @@ USE-ALLOTTED non-nil (default) uses calendar block lengths; nil uses CLOCK."
       (kill-new text)
       (message "Arbor timesheet copied (%d chars)" (length text))))
 
+  (defvar luciano/org-command-center-active nil
+    "Non-nil while the command-center agenda+chart layout should stay open.")
+
+  (defun luciano/org-refresh-command-chart ()
+    "Rebuild *Org Command Chart* if it exists (keep week shift)."
+    (when-let ((buf (get-buffer "*Org Command Chart*")))
+      (with-current-buffer buf
+        (luciano/org--weekly-dashboard-buffer
+         (or (and (boundp 'luciano/org-command-chart-week)
+                  luciano/org-command-chart-week)
+             0)))))
+
+  (defun luciano/org--ensure-command-chart-window ()
+    "Show the bar chart in a right split next to the agenda, if missing."
+    (when-let ((agenda-win (or (get-buffer-window org-agenda-buffer-name)
+                               (and (eq major-mode 'org-agenda-mode)
+                                    (selected-window)))))
+      (let* ((chart (luciano/org--weekly-dashboard-buffer
+                     (or (and (get-buffer "*Org Command Chart*")
+                              (with-current-buffer "*Org Command Chart*"
+                                (and (boundp 'luciano/org-command-chart-week)
+                                     luciano/org-command-chart-week)))
+                         0)))
+             (chart-win (get-buffer-window chart)))
+        (unless chart-win
+          (with-selected-window agenda-win
+            (when (one-window-p t)
+              (split-window-right))
+            (let ((right (window-in-direction 'right)))
+              (if right
+                  (set-window-buffer right chart)
+                (split-window-right)
+                (other-window 1)
+                (switch-to-buffer chart)
+                (other-window -1)))))
+        chart)))
+
+  (defun luciano/org-show-command-chart (&optional week-shift)
+    "Pop the command-center bar chart (planned time + Arbor timesheet).
+Call this anytime — SPC o C — if the right pane went missing."
+    (interactive (list 0))
+    (let ((buf (luciano/org--weekly-dashboard-buffer (or week-shift 0))))
+      (if-let ((win (get-buffer-window buf)))
+          (select-window win)
+        (display-buffer
+         buf
+         '((display-buffer-reuse-window display-buffer-in-side-window)
+           (side . right)
+           (window-width . 0.42)
+           (reusable-frames . visible))))
+      buf))
+
   (defun luciano/org-agenda-command-center (&optional _match)
     "Command center: 10-day agenda (left) + planned chart / timesheet (right)."
-    (let ((org-agenda-window-setup 'only-window))
+    (setq luciano/org-command-center-active t)
+    (let ((org-agenda-window-setup 'only-window)
+          (luciano/inhibit-kill-on-delete-window t))
       (org-agenda nil "d!"))
     (when-let ((agenda-win (get-buffer-window org-agenda-buffer-name)))
       (select-window agenda-win)
-      (delete-other-windows)
+      (let ((luciano/inhibit-kill-on-delete-window t))
+        (delete-other-windows))
       (split-window-right)
       (other-window 1)
       (switch-to-buffer (luciano/org--weekly-dashboard-buffer 0))
-      (other-window 1)))
+      (other-window 1))
+    ;; If agenda landed elsewhere, still force the chart pane.
+    (luciano/org--ensure-command-chart-window))
 
   (defun luciano/org-agenda-insert-weekly-dashboard (&optional _match)
     "Legacy stacked insert (unused by command center; kept for T-style reuse)."
@@ -714,6 +772,149 @@ USE-ALLOTTED non-nil (default) uses calendar block lengths; nil uses CLOCK."
               (propertize "════════ Time this week ════════\n" 'face 'bold)
               (luciano/org--format-weekly-dashboard 0 t)
               "\n")))
+
+  ;; Keep the bar chart visible + fresh while the command center is up.
+  (defun luciano/org-agenda-maybe-restore-chart ()
+    (when luciano/org-command-center-active
+      (luciano/org--ensure-command-chart-window)
+      (luciano/org-refresh-command-chart)))
+  (add-hook 'org-agenda-finalize-hook #'luciano/org-agenda-maybe-restore-chart)
+
+  ;;; --- Schedule sidecar (see what's booked while capturing) ------------
+  (defun luciano/org--hhmm (hour minute)
+    "12h clock string for HOUR/MINUTE."
+    (let* ((h (mod (or hour 0) 24))
+           (m (or minute 0))
+           (h12 (let ((x (mod h 12))) (if (zerop x) 12 x))))
+      (format "%d:%02d%s" h12 m (if (< h 12) "am" "pm"))))
+
+  (defun luciano/org--collect-schedule-overview (start end &optional files)
+    "Timed SCHEDULED blocks in [START,END) for a capture/schedule sidecar.
+Includes point-in-time stamps (no end) as start-only rows."
+    (let (rows)
+      (dolist (file (or files (org-agenda-files t)))
+        (let ((cat (luciano/org--file-category file)))
+          (with-current-buffer (find-file-noselect file)
+            (org-with-wide-buffer
+             (org-map-entries
+              (lambda ()
+                (let ((todo (org-get-todo-state)))
+                  (when (or (null todo)
+                            (member todo luciano/org-time-todo-states))
+                    (let* ((elem (org-element-at-point))
+                           (sched (org-element-property :scheduled elem))
+                           (plist (and sched (eq (car-safe sched) 'timestamp)
+                                       (cadr sched))))
+                      (when (and plist (plist-get plist :hour-start))
+                        (let* ((hs (plist-get plist :hour-start))
+                               (ms (or (plist-get plist :minute-start) 0))
+                               (he (plist-get plist :hour-end))
+                               (me (or (plist-get plist :minute-end) 0))
+                               (cs (encode-time
+                                    0 ms hs
+                                    (plist-get plist :day-start)
+                                    (plist-get plist :month-start)
+                                    (plist-get plist :year-start)))
+                               (ce (if he
+                                       (encode-time
+                                        0 me he
+                                        (or (plist-get plist :day-end)
+                                            (plist-get plist :day-start))
+                                        (or (plist-get plist :month-end)
+                                            (plist-get plist :month-start))
+                                        (or (plist-get plist :year-end)
+                                            (plist-get plist :year-start)))
+                                     (luciano/org--time-add cs (* 30 60)))))
+                          (when (and (time-less-p cs end)
+                                     (time-less-p start ce))
+                            (push (list :cat cat
+                                        :title (org-get-heading t t t t)
+                                        :day (format-time-string "%a %m/%d" cs)
+                                        :when (if he
+                                                  (format "%s–%s"
+                                                          (luciano/org--hhmm hs ms)
+                                                          (luciano/org--hhmm he me))
+                                                (luciano/org--hhmm hs ms))
+                                        :sort (float-time cs))
+                                  rows))))))))
+              nil 'file)))))
+      (cl-sort (nreverse rows) #'< :key (lambda (r) (plist-get r :sort)))))
+
+  (defun luciano/org--format-schedule-sidecar (&optional days)
+    "Plain-text overview of booked times for the next DAYS (default 5)."
+    (let* ((days (or days 5))
+           (start (luciano/org--time-add
+                   (apply #'encode-time
+                          (append '(0 0 0)
+                                  (nthcdr 3 (decode-time (current-time)))))
+                   0))
+           (end (luciano/org--time-add start (* days 24 60 60)))
+           (rows (luciano/org--collect-schedule-overview start end))
+           (out (concat
+                 (propertize
+                  (format "Already booked · next %d day%s\n"
+                          days (if (= days 1) "" "s"))
+                  'face 'bold)
+                 (propertize
+                  "Use this while picking a time for a new note.\n\n"
+                  'face 'shadow)))
+           (cur-day nil))
+      (if (null rows)
+          (setq out (concat out (propertize "(nothing timed yet)\n" 'face 'shadow)))
+        (dolist (r rows)
+          (let ((day (plist-get r :day)))
+            (unless (equal day cur-day)
+              (setq cur-day day)
+              (setq out (concat out
+                                (propertize (format "%s\n" day) 'face 'bold))))
+            (setq out
+                  (concat out
+                          (format "  %-11s %s\n"
+                                  (propertize (plist-get r :when) 'face 'success)
+                                  (truncate-string-to-width
+                                   (format "%s  [%s]"
+                                           (plist-get r :title)
+                                           (plist-get r :cat))
+                                   40 nil nil "…")))))))
+      out))
+
+  (defun luciano/org-show-schedule-sidecar (&rest _)
+    "Side window: what's already scheduled (for capture / time prompts)."
+    (interactive)
+    (let ((buf (get-buffer-create "*Schedule now*")))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (special-mode)
+          (setq-local revert-buffer-function
+                      (lambda (&rest _) (luciano/org-show-schedule-sidecar)))
+          (insert (luciano/org--format-schedule-sidecar 5))
+          (goto-char (point-min))
+          (local-set-key (kbd "g") #'revert-buffer)
+          (local-set-key (kbd "q") #'quit-window)))
+      (display-buffer
+       buf
+       '((display-buffer-reuse-window display-buffer-in-side-window)
+         (side . right)
+         (slot . 1)
+         (window-width . 42)
+         (dedicated . t)
+         (reusable-frames . visible)))
+      buf))
+
+  (defun luciano/org-hide-schedule-sidecar (&rest _)
+    "Drop the schedule sidecar when capture finishes."
+    (when-let ((buf (get-buffer "*Schedule now*")))
+      (when-let ((win (get-buffer-window buf)))
+        (quit-window t win))))
+
+  (add-hook 'org-capture-mode-hook #'luciano/org-show-schedule-sidecar)
+  (add-hook 'org-capture-after-finalize-hook #'luciano/org-hide-schedule-sidecar)
+  ;; Refresh while answering %^T / schedule prompts (only during capture).
+  (defun luciano/org-maybe-refresh-schedule-sidecar (&rest _)
+    (when (bound-and-true-p org-capture-mode)
+      (luciano/org-show-schedule-sidecar)))
+  (advice-add 'org-read-date :before #'luciano/org-maybe-refresh-schedule-sidecar)
 
   (defun luciano/org--bar (mins max-mins width face &optional pad)
     "Propertized ASCII bar for MINS relative to MAX-MINS."
@@ -799,8 +1000,8 @@ WEEK-SHIFT: 0=this week, -1=last week, etc."
                       (let ((m (gethash (cons d cat) day-cat 0)))
                         (when (> m 0)
                           (insert (luciano/org--bar m max-day
-                                                      (max 1 (round (* bar-w (/ m (float max-day)))))
-                                                      (luciano/org--category-face cat))))))
+                                                    (max 1 (round (* bar-w (/ m (float max-day)))))
+                                                    (luciano/org--category-face cat))))))
                     (insert "\n")
                     (dolist (cat cats)
                       (let ((m (gethash (cons d cat) day-cat 0)))
@@ -882,7 +1083,7 @@ WEEK-SHIFT: 0=this week, -1=last week, etc."
                            (luciano/org-weekly-time-chart
                             (1+ luciano/org-time-chart-week)
                             luciano/org-time-chart-expand)))
-          (local-set-key (kbd "q") #'quit-window)))
+          (local-set-key (kbd "q") #'luciano/kill-buffer-ask-save)))
       (pop-to-buffer buf)))
 
   (defun luciano/org-agenda-weekly-time-chart (&optional _match)
@@ -971,7 +1172,7 @@ WEEK-SHIFT: 0=this week, -1=last week. Keys: g refresh, </> week, q quit."
                            (interactive)
                            (luciano/org-arbor-timecard
                             (1+ luciano/org-arbor-timecard-week))))
-          (local-set-key (kbd "q") #'quit-window)))
+          (local-set-key (kbd "q") #'luciano/kill-buffer-ask-save)))
       (pop-to-buffer buf)))
 
   (defun luciano/org-agenda-arbor-timecard (&optional _match)
@@ -995,7 +1196,7 @@ WEEK-SHIFT: 0=this week, -1=last week. Keys: g refresh, </> week, q quit."
                      ;; Parked items live in the pane below — keep the calendar clean.
                      (org-agenda-skip-function
                       '(org-agenda-skip-entry-if 'todo
-                                                 '("WAITING_REPLY" "NEEDS_REPLY")))))
+                        '("WAITING_REPLY" "NEEDS_REPLY")))))
             (todo "IN_PROGRESS"
                   ((org-agenda-overriding-header "In progress")))
             (todo ,luciano/org-parked-todo-match
@@ -1007,7 +1208,7 @@ WEEK-SHIFT: 0=this week, -1=last week. Keys: g refresh, </> week, q quit."
                      (org-agenda-overriding-header "Today")
                      (org-agenda-skip-function
                       '(org-agenda-skip-entry-if 'todo
-                                                 '("WAITING_REPLY" "NEEDS_REPLY")))))
+                        '("WAITING_REPLY" "NEEDS_REPLY")))))
             (todo "IN_PROGRESS"
                   ((org-agenda-overriding-header "In progress")))
             (todo ,luciano/org-parked-todo-match
@@ -1058,17 +1259,113 @@ WEEK-SHIFT: 0=this week, -1=last week. Keys: g refresh, </> week, q quit."
                      (org-agenda-start-with-clockreport-mode t)
                      (org-agenda-clockreport-parameter-plist
                       '(:link t :maxlevel 3 :fileskip0 t :compact t
-                              :narrow 60 :formula %))
+                        :narrow 60 :formula %))
                      (org-agenda-overriding-header "Arbor week + time clocked")))))
           ("W" "Arbor hours per task (timecard)" luciano/org-agenda-arbor-timecard)
           ("T" "Weekly time chart (CLOCK)" luciano/org-agenda-weekly-time-chart)))
+
+  (defun luciano/org--slide-heading-minutes (hdmarker minutes)
+    "Shift SCHEDULED (else DEADLINE / first stamp) at HDMARKER by MINUTES.
+Preserves HH:MM-HH:MM duration. Return non-nil on success."
+    (when (and (markerp hdmarker) (marker-buffer hdmarker))
+      (with-current-buffer (marker-buffer hdmarker)
+        (org-with-wide-buffer
+         (goto-char hdmarker)
+         (org-back-to-heading t)
+         (let ((bound (save-excursion (outline-next-heading) (point)))
+               (changed nil))
+           (cl-labels
+               ((shift-at-match ()
+                  ;; Point at `<' of an active timestamp → change minutes.
+                  (when (org-at-timestamp-p 'lax)
+                    (org-timestamp-change minutes 'minute)
+                    (setq changed t))))
+             (save-excursion
+               (cond
+                ((re-search-forward org-scheduled-time-regexp bound t)
+                 (goto-char (1- (match-beginning 1)))
+                 (shift-at-match))
+                ((re-search-forward org-deadline-time-regexp bound t)
+                 (goto-char (1- (match-beginning 1)))
+                 (shift-at-match))
+                ((re-search-forward org-ts-regexp bound t)
+                 (goto-char (match-beginning 0))
+                 (shift-at-match)))))
+           changed)))))
+
+  (defun luciano/org-agenda-slide-targets ()
+    "Headlines to slide: bulk-marked, else region lines, else point."
+    (cond
+     (org-agenda-bulk-marked-entries
+      (cl-remove-if-not (lambda (m) (and (markerp m) (marker-buffer m)))
+                        (reverse org-agenda-bulk-marked-entries)))
+     ((use-region-p)
+      (let (ms)
+        (save-excursion
+          (goto-char (region-beginning))
+          (while (< (point) (region-end))
+            (when-let ((m (org-get-at-bol 'org-hd-marker)))
+              (push m ms))
+            (forward-line 1)))
+        (nreverse (delete-dups ms))))
+     (t
+      (list (or (org-get-at-bol 'org-hd-marker)
+                (org-agenda-error))))))
+
+  (defun luciano/org-agenda-slide-minutes (n)
+    "Reschedule agenda entry(ies) by N×15 minutes (negative = earlier).
+With bulk marks (`m`) or an active region, shift all of them; otherwise
+the line at point. Saves Org files and pushes writable calendars to GCal."
+    (interactive "p")
+    (org-agenda-check-type t 'agenda)
+    (let* ((step (* n (or (cadr org-time-stamp-rounding-minutes) 15)))
+           (targets (luciano/org-agenda-slide-targets))
+           (buffers nil)
+           (count 0)
+           (heading-ids nil))
+      (unless targets
+        (user-error "Nothing to reschedule at point (mark with m, or select a region)"))
+      (dolist (hd targets)
+        (when (luciano/org--slide-heading-minutes hd step)
+          (setq count (1+ count))
+          (cl-pushnew (marker-buffer hd) buffers)
+          (push (copy-marker hd) heading-ids)))
+      (dolist (buf buffers)
+        (with-current-buffer buf
+          (when (buffer-modified-p)
+            ;; Suppress bulk after-save; we push each heading below.
+            (let ((luciano/org-gcal--just-captured t))
+              (save-buffer)))))
+      ;; Same deferred push path as native agenda reschedule (proven to work).
+      (dolist (hd (nreverse heading-ids))
+        (when (fboundp 'luciano/org-gcal-push-heading-at-marker)
+          (luciano/org-gcal-push-heading-at-marker hd 'verbose)))
+      (when org-agenda-bulk-marked-entries
+        (org-agenda-bulk-unmark-all))
+      (org-agenda-redo t)
+      (when (fboundp 'luciano/org-refresh-command-chart)
+        (luciano/org-refresh-command-chart))
+      (message "Rescheduled %d event%s by %+d min (GCal push queued)"
+               count (if (= count 1) "" "s") step)))
+
+  (defun luciano/org-agenda-slide-later (&optional arg)
+    "Slide event(s) ARG×15 minutes later. Bulk marks / region supported."
+    (interactive "p")
+    (luciano/org-agenda-slide-minutes (or arg 1)))
+
+  (defun luciano/org-agenda-slide-earlier (&optional arg)
+    "Slide event(s) ARG×15 minutes earlier. Bulk marks / region supported."
+    (interactive "p")
+    (luciano/org-agenda-slide-minutes (- (or arg 1))))
 
   (map! :map org-mode-map
         :localleader
         :desc "Sort open tasks first" "S" #'luciano/org-sort-open-first
         :desc "Fold DONE/CANCELLED" "F" #'luciano/org-fold-done-entries)
   (map! :leader
-        :desc "Weekly time chart" "o C" #'luciano/org-weekly-time-chart
+        :desc "Command bar chart" "o C" #'luciano/org-show-command-chart
+        :desc "CLOCK time chart" "o T" #'luciano/org-weekly-time-chart
+        :desc "What's booked" "o B" #'luciano/org-show-schedule-sidecar
         :desc "Arbor timecard" "o W" #'luciano/org-arbor-timecard))
 ;;; ==========================================
 ;;; GOOGLE CALENDAR (ORG-GCAL)
@@ -1228,6 +1525,42 @@ Does not stub unrelated minibuffer reads (oauth / pinentry)."
                           (max org-gcal-event-default-duration 30)))
                    (apply orig-rfm prompt default args)))))
       (org-gcal-post-at-point nil nil 'always-push))))
+
+(defun luciano/org-gcal-push-heading-at-marker (marker &optional verbose)
+  "Deferred GCal push for the Org headline at MARKER.
+VERBOSE non-nil prints skip/success/error messages (used by agenda slide)."
+  (when (and (markerp marker) (marker-buffer marker))
+    (let ((buf (marker-buffer marker))
+          (pos (marker-position marker)))
+      (run-with-idle-timer
+       0.4 nil
+       (lambda ()
+         (when (buffer-live-p buf)
+           (with-current-buffer buf
+             (save-excursion
+               (goto-char pos)
+               (org-back-to-heading t)
+               (let ((title (org-get-heading t t t t)))
+                 (cond
+                  ((not (luciano/org-gcal-writable-file-p))
+                   (when verbose
+                     (message "org-gcal: skip %s (canvas/readonly or unmapped file)"
+                              title)))
+                  ((not (luciano/org-gcal-tokens-unlocked-p))
+                   (message "org-gcal: unlock tokens (SPC G u) to push “%s”" title))
+                  (t
+                   (condition-case err
+                       (progn
+                         (luciano/org-gcal--post-quietly)
+                         ;; ensure-postable may have dirtied the buffer
+                         (when (buffer-modified-p)
+                           (let ((luciano/org-gcal--just-captured t))
+                             (save-buffer)))
+                         (when verbose
+                           (message "org-gcal: pushed “%s”" title)))
+                     (error
+                      (message "org-gcal push “%s”: %s"
+                               title (error-message-string err)))))))))))))))
 
 (defun luciano/org-agenda-redo-if-live ()
   "Refresh an open agenda buffer so it matches Org/GCal without reopening."
@@ -1577,3 +1910,379 @@ Skips entirely when tokens are locked — opening agenda must never hang on pine
                      "--completion-style=detailed"
                      "--header-insertion=iwyu"
                      "--header-insertion-decorators"))
+
+;; Enable code execution for C, Python, and Bash
+(org-babel-do-load-languages
+ 'org-babel-load-languages
+ '((C . t)
+   (python . t)
+   (shell . t)))
+
+;;; ==========================================
+;;; QUIT = ask save, then kill; never land on *scratch*
+;;; ==========================================
+;; IMPORTANT: do NOT advise delete-window to kill file buffers.
+;; Stock Evil :wq / :q → evil-window-delete → on a sole window, delete-window
+;; errors → evil-quit falls through to save-buffers-kill-emacs. Killing the
+;; buffer *before* that made :wq look like a crash (Emacs exited).
+
+(defvar luciano/inhibit-kill-on-delete-window nil
+  "Legacy flag; kept so older callers binding it still work.")
+
+;; Prefer Doom dashboard over *scratch* when nothing else is open.
+(setq doom-fallback-buffer-name "*doom*")
+
+(defun luciano/dashboard-name ()
+  (if (boundp '+dashboard-name) +dashboard-name "*doom*"))
+
+(defun luciano/goto-dashboard ()
+  "Show the Doom dashboard in this window/workspace; never leave *scratch* visible."
+  (setq doom-fallback-buffer-name (luciano/dashboard-name))
+  (delete-other-windows)
+  (let ((buffer-list-update-hook nil))
+    (if (fboundp '+dashboard/open)
+        (+dashboard/open (selected-frame))
+      (progn
+        (switch-to-buffer (doom-fallback-buffer))
+        (when (fboundp '+dashboard-reload)
+          (+dashboard-reload t)))))
+  (when (and (bound-and-true-p persp-mode)
+             (fboundp 'persp-add-buffer))
+    (persp-add-buffer (current-buffer) (get-current-persp) nil nil))
+  (when-let ((scratch (get-buffer "*scratch*")))
+    (unless (eq scratch (current-buffer))
+      (dolist (win (get-buffer-window-list scratch nil t))
+        (set-window-buffer win (current-buffer)))
+      (ignore-errors (kill-buffer scratch))))
+  (current-buffer))
+
+(defun luciano/next-real-buffer (&optional dying)
+  "Return another real buffer, or nil (caller should open the dashboard)."
+  (cl-find-if (lambda (b)
+                (and (not (eq b dying))
+                     (not (string= (buffer-name b) "*scratch*"))
+                     (not (string= (buffer-name b) (luciano/dashboard-name)))
+                     (doom-real-buffer-p b)))
+              (buffer-list)))
+
+(defun luciano/last-real-buffer-p (&optional dying)
+  "Non-nil if DYING is the only remaining real buffer."
+  (null (luciano/next-real-buffer dying)))
+
+(defun luciano/ensure-not-scratch ()
+  "If this window shows *scratch* (or nothing real), open the dashboard."
+  (when (or (string= (buffer-name) "*scratch*")
+            (and (luciano/last-real-buffer-p)
+                 (not (string= (buffer-name) (luciano/dashboard-name)))
+                 (not (and (fboundp '+dashboard-buffer-p)
+                           (+dashboard-buffer-p (current-buffer))))))
+    (luciano/goto-dashboard)))
+
+(defun luciano/kill-buffer-ask-save (&optional buffer)
+  "Offer to save BUFFER if modified, then kill it (never bury).
+If it was the last real buffer, land on the Doom dashboard — never *scratch*."
+  (interactive)
+  (let ((buf (or buffer (current-buffer))))
+    (when (and (boundp 'luciano/org-command-center-active)
+               luciano/org-command-center-active
+               (or (and (buffer-live-p buf)
+                        (string-prefix-p "*Org Agenda" (buffer-name buf)))
+                   (eq buf (get-buffer "*Org Command Chart*"))))
+      (setq luciano/org-command-center-active nil))
+    (with-current-buffer buf
+      (when (and (buffer-modified-p)
+                 (or (buffer-file-name)
+                     (and (boundp 'buffer-offer-save) buffer-offer-save)))
+        (if (y-or-n-p (format "Save %s before killing? " (buffer-name buf)))
+            (save-buffer)
+          (set-buffer-modified-p nil))))
+    (let* ((win (get-buffer-window buf))
+           (last-p (luciano/last-real-buffer-p buf)))
+      (cond
+       ;; Last real buffer → dashboard, then kill.
+       (last-p
+        (luciano/goto-dashboard)
+        (when (and (buffer-live-p buf)
+                   (not (eq buf (current-buffer))))
+          (let (kill-buffer-query-functions kill-buffer-hook)
+            (ignore-errors (kill-buffer buf))))
+        (luciano/goto-dashboard)
+        (run-at-time 0 nil #'luciano/goto-dashboard))
+       ;; Extra window: kill buffer + close window.
+       ((and win (not (one-window-p t)))
+        (with-selected-window win
+          (kill-buffer buf)
+          (when (window-live-p win)
+            (delete-window win))))
+       ;; Sole window, more real buffers left: switch to another real one.
+       (t
+        (when (and win (eq (window-buffer win) buf))
+          (with-selected-window win
+            (if-let ((other (luciano/next-real-buffer buf)))
+                (switch-to-buffer other)
+              (luciano/goto-dashboard))))
+        (when (buffer-live-p buf)
+          (let (kill-buffer-query-functions)
+            (ignore-errors (kill-buffer buf))))
+        (luciano/ensure-not-scratch))))))
+
+;; :q / :wq must kill the buffer — never fall through to kill-emacs.
+(defun luciano/evil-quit (&optional force)
+  "Kill this buffer (ask to save). Never exit Emacs from :q.
+Use SPC q q (or :qa) to leave Emacs."
+  (interactive "<!>")
+  (if force
+      (progn
+        (set-buffer-modified-p nil)
+        (let (kill-buffer-query-functions)
+          (kill-buffer (current-buffer)))
+        (luciano/ensure-not-scratch))
+    (luciano/kill-buffer-ask-save)))
+
+(defun luciano/evil-save-and-close (file &optional bang)
+  "Save, then kill buffer — never exit Emacs (fixes :wq 'crash')."
+  (interactive "<f><!>")
+  (evil-write nil nil nil file bang)
+  (luciano/kill-buffer-ask-save))
+
+(advice-add 'evil-quit :override #'luciano/evil-quit)
+(advice-add 'evil-save-and-close :override #'luciano/evil-save-and-close)
+
+(after! org-agenda
+  ;; Agenda is not sticky: q should destroy it, not leave it buried.
+  (setq org-agenda-sticky nil)
+  (defun luciano/org-agenda-quit ()
+    "Quit agenda; drop the command-center chart pane too."
+    (interactive)
+    (setq luciano/org-command-center-active nil)
+    (when-let ((chart (get-buffer "*Org Command Chart*")))
+      (when (get-buffer-window chart)
+        (ignore-errors (kill-buffer chart))))
+    (luciano/kill-buffer-ask-save))
+  (define-key org-agenda-mode-map (kbd "q") #'luciano/org-agenda-quit)
+  ;; Reschedule by 15m — must bind evil motion state or Alt+↑/↓ still drags lines.
+  (map! :map org-agenda-mode-map
+        :m "M-<down>" #'luciano/org-agenda-slide-later
+        :m "M-<up>"   #'luciano/org-agenda-slide-earlier
+        "M-<down>"    #'luciano/org-agenda-slide-later
+        "M-<up>"      #'luciano/org-agenda-slide-earlier)
+  (after! evil-org-agenda
+    (evil-define-key* 'motion evil-org-agenda-mode-map
+      (kbd "M-<down>") #'luciano/org-agenda-slide-later
+      (kbd "M-<up>")   #'luciano/org-agenda-slide-earlier)))
+
+;; After any kill-current-buffer, scrub *scratch* if it stole the window.
+(defadvice! luciano/after-kill-current-buffer-a (&rest _)
+  "Never leave the frame on *scratch* after killing a buffer."
+  :after #'kill-current-buffer
+  (luciano/ensure-not-scratch)
+  (run-at-time 0 nil #'luciano/ensure-not-scratch))
+
+(defun luciano/kill-all-buffers-ask-save ()
+  "Offer to save, kill every buffer, then land on the Doom dashboard."
+  (interactive)
+  (save-some-buffers)
+  (let* ((dash-name (luciano/dashboard-name))
+         (dash (get-buffer-create dash-name)))
+    (setq doom-fallback-buffer-name dash-name)
+    (delete-other-windows)
+    (switch-to-buffer dash)
+    (when (fboundp '+dashboard-reload)
+      (+dashboard-reload t))
+    (dolist (buf (buffer-list))
+      (let ((name (buffer-name buf)))
+        (unless (or (eq buf dash)
+                    (string= name dash-name)
+                    (string-prefix-p " " name))
+          (when (buffer-live-p buf)
+            (with-current-buffer buf
+              (when (and (buffer-modified-p) (not (buffer-file-name)))
+                (set-buffer-modified-p nil)))
+            (let (kill-buffer-query-functions
+                  kill-buffer-hook)
+              (ignore-errors (kill-buffer buf)))))))
+    (luciano/goto-dashboard)
+    (run-at-time 0 nil #'luciano/goto-dashboard)
+    (message "Killed all buffers → %s" (buffer-name))))
+
+;; Catch stock Doom entry points too (SPC b K before remap, :killa, etc.).
+(defadvice! luciano/after-doom-kill-all-buffers-a (&rest _)
+  "After Doom kill-all, force the dashboard instead of *scratch*."
+  :after #'doom/kill-all-buffers
+  (luciano/goto-dashboard)
+  (run-at-time 0 nil #'luciano/goto-dashboard))
+
+(map! :leader
+      (:prefix ("b" . "buffer")
+       :desc "Kill buffer (ask save)" "k" #'luciano/kill-buffer-ask-save
+       :desc "Kill buffer (ask save)" "d" #'luciano/kill-buffer-ask-save
+       :desc "Kill all → dashboard" "K" #'luciano/kill-all-buffers-ask-save))
+
+;;; ==========================================
+;;; WORKSPACES — permanent SPC TAB TAB (modeline center)
+;;; ==========================================
+;; Doom's +workspace/display only flashes in the echo area. Keep that same
+;; [1] name [2] name list centered on the modeline, always on one line.
+(defun luciano/workspace-modeline-tabs ()
+  "SPC TAB TAB workspace list for the doom modeline."
+  (cond
+   ((not (and (fboundp '+workspace-list-names)
+              (bound-and-true-p persp-mode)))
+    (propertize "(ws…)" 'face 'shadow))
+   (t
+    (let ((names (+workspace-list-names))
+          (current (+workspace-current-name))
+          (i 0))
+      (mapconcat
+       (lambda (name)
+         (setq i (1+ i))
+         (let* ((label (format "[%d]%s" i name))
+                (active (equal name current))
+                (map (make-sparse-keymap))
+                (ws name))
+           (define-key map [mode-line mouse-1]
+             (lambda ()
+               (interactive)
+               (+workspace-switch ws t)))
+           (define-key map [mode-line mouse-2]
+             (lambda ()
+               (interactive)
+               (+workspace/display)))
+           (propertize
+            (concat " " label " ")
+            'face (if active
+                      '+workspace-tab-selected-face
+                    '+workspace-tab-face)
+            'mouse-face 'mode-line-highlight
+            'help-echo (format "%s workspace — click to switch" name)
+            'local-map map)))
+       names
+       "")))))
+
+;;; ==========================================
+;;; MODELINE — path left, workspaces center, rest right
+;;; ==========================================
+(after! doom-modeline
+  (setq doom-modeline-persp-name nil
+        doom-modeline-workspace-name nil
+        ;; Prefer a single-line modeline when Emacs supports it.
+        mode-line-compact 'long)
+  (advice-add #'mode-line-invisible-mode :override #'ignore)
+
+  (doom-modeline-def-segment luciano-workspaces
+    "Centered SPC TAB TAB workspace list (one line)."
+    (let* ((tabs (luciano/workspace-modeline-tabs))
+           (w (string-width (substring-no-properties tabs))))
+      ;; Push the group to the horizontal center of the mode line.
+      (concat
+       (propertize " " 'display `((space :align-to (- center ,(/ w 2)))))
+       tabs)))
+
+  (doom-modeline-def-modeline 'luciano-main
+    ;; Left + centered workspaces (align-to handles centering).
+    '(bar buffer-info remote-host luciano-workspaces)
+    ;; Right: status only — do NOT put workspaces here (avoids wrap/dupe).
+    '(misc-info major-mode process vcs check buffer-position))
+
+  (defun luciano/doom-modeline-use-main ()
+    "Use the luciano modeline as the default."
+    (doom-modeline-set-modeline 'luciano-main 'default)
+    (setq-default header-line-format nil)
+    (dolist (buf (buffer-list))
+      (with-current-buffer buf
+        (kill-local-variable 'header-line-format))))
+
+  (add-hook 'doom-modeline-mode-hook #'luciano/doom-modeline-use-main)
+  (when (bound-and-true-p doom-modeline-mode)
+    (luciano/doom-modeline-use-main))
+  (when (boundp 'persp-activated-functions)
+    (add-hook 'persp-activated-functions
+              (lambda (&rest _) (force-mode-line-update t)))))
+
+;;; ==========================================
+;;; THEME — match Omarchy / Aether colors
+;;; ==========================================
+(defvar luciano/omarchy-colors nil
+  "Alist of color keys from the active Omarchy/Aether colors.toml.")
+
+(defun luciano/load-omarchy-colors ()
+  "Load colors from the active Omarchy theme (Aether writes here)."
+  (let ((file (expand-file-name
+               "omarchy/current/theme/colors.toml"
+               (or (getenv "XDG_STATE_HOME")
+                   (expand-file-name "~/.local/state"))))
+        colors)
+    (unless (file-readable-p file)
+      (setq file (expand-file-name "~/.config/omarchy/current/theme/colors.toml")))
+    (when (file-readable-p file)
+      (with-temp-buffer
+        (insert-file-contents file)
+        (goto-char (point-min))
+        (while (re-search-forward
+                "^\\([a-z0-9_]+\\)\\s-*=\\s-*\"\\(#[A-Fa-f0-9]+\\)\"" nil t)
+          (push (cons (match-string-no-properties 1)
+                      (match-string-no-properties 2))
+                colors)))
+      (setq luciano/omarchy-colors (nreverse colors)))
+    luciano/omarchy-colors))
+
+(defun luciano/omarchy-color (key &optional default)
+  "Return Omarchy color KEY or DEFAULT."
+  (or (cdr (assoc key luciano/omarchy-colors)) default))
+
+(defun luciano/apply-omarchy-theme-faces (&rest _)
+  "Restyle Doom faces to match the active Aether/Omarchy palette."
+  (when (luciano/load-omarchy-colors)
+    (let* ((bg      (luciano/omarchy-color "background" "#000001"))
+           (fg      (luciano/omarchy-color "foreground" "#efefe4"))
+           (bg-alt  (or (luciano/omarchy-color "lighter_background")
+                        (luciano/omarchy-color "lighter_bg")
+                        "#1a1a1a"))
+           (fg-dim  (or (luciano/omarchy-color "dark_foreground")
+                        (luciano/omarchy-color "muted")
+                        "#5b5e64"))
+           (accent  (luciano/omarchy-color "accent" "#a0bcff"))
+           (blue    (luciano/omarchy-color "blue" accent))
+           (cyan    (luciano/omarchy-color "cyan" "#72dfe1"))
+           (green   (luciano/omarchy-color "green" "#d4ca7c"))
+           (yellow  (luciano/omarchy-color "yellow" "#f4ca84"))
+           (red     (luciano/omarchy-color "red" "#fc9e8d"))
+           (magenta (luciano/omarchy-color "magenta" "#eba8d9"))
+           (orange  (luciano/omarchy-color "orange" "#fcad9e"))
+           (region  (or (luciano/omarchy-color "selection") bg-alt)))
+      (custom-set-faces!
+       `(default :background ,bg :foreground ,fg)
+       `(fringe :background ,bg)
+       `(solaire-default-face :background ,bg-alt)
+       `(hl-line :background ,bg-alt)
+       `(region :background ,region :foreground ,fg)
+       `(cursor :background ,accent)
+       `(font-lock-comment-face :foreground ,fg-dim)
+       `(font-lock-keyword-face :foreground ,blue)
+       `(font-lock-function-name-face :foreground ,cyan)
+       `(font-lock-string-face :foreground ,green)
+       `(font-lock-constant-face :foreground ,orange)
+       `(font-lock-variable-name-face :foreground ,fg)
+       `(font-lock-type-face :foreground ,yellow)
+       `(font-lock-builtin-face :foreground ,magenta)
+       `(mode-line :background ,bg-alt :foreground ,fg)
+       `(mode-line-inactive :background ,bg :foreground ,fg-dim)
+       `(header-line :background ,bg-alt :foreground ,fg)
+       `(vertical-border :foreground ,bg-alt)
+       `(+workspace-tab-selected-face :background ,accent :foreground ,bg :weight bold)
+       `(+workspace-tab-face :background ,bg-alt :foreground ,fg-dim)
+       `(line-number :foreground ,fg-dim)
+       `(line-number-current-line :foreground ,accent :weight bold)
+       `(org-level-1 :foreground ,blue :weight bold)
+       `(org-level-2 :foreground ,cyan)
+       `(org-level-3 :foreground ,magenta)
+       `(link :foreground ,blue :underline t)
+       `(highlight :background ,bg-alt :foreground ,accent)
+       `(doom-modeline-buffer-file :foreground ,fg :weight bold)
+       `(doom-modeline-project-dir :foreground ,blue))
+      (message "Doom faces synced to Omarchy/Aether (%s)" bg))))
+
+;; Prefer Aether palette over stock doom-one colors.
+(setq doom-theme 'doom-one)
+(add-hook 'doom-load-theme-hook #'luciano/apply-omarchy-theme-faces)
+(add-hook 'doom-after-init-hook #'luciano/apply-omarchy-theme-faces)
