@@ -1,0 +1,31 @@
+#!/bin/bash
+# Apply an Omarchy/Aether color theme WITHOUT changing the wallpaper.
+#
+# Usage:
+#   theme-colors                  # list themes
+#   theme-colors wallhaven-n61erq # apply that theme's colors only
+#   theme-colors aether
+#
+# Wallpaper alone: theme-wallpaper ~/Pictures/foo.jpg
+# Full Aether regen from an image (colors+wall): aether --generate /path/to.jpg
+
+set -euo pipefail
+
+if [[ $# -eq 0 || $1 == "-h" || $1 == "--help" ]]; then
+  echo "Usage: theme-colors <theme-name>"
+  echo
+  echo "Available themes:"
+  omarchy-theme-list 2>/dev/null || ls "$HOME/.config/omarchy/themes" 2>/dev/null
+  exit 0
+fi
+
+THEME="$1"
+export OMARCHY_THEME_SKIP_BACKGROUND=1
+omarchy-theme-set "$THEME"
+
+# Keep Doom Emacs in sync if it's running.
+if pgrep -x emacs >/dev/null 2>&1; then
+  emacsclient -n -e '(luciano/apply-omarchy-theme-faces)' >/dev/null 2>&1 || true
+fi
+
+echo "Colors → $THEME (wallpaper left as: $(omarchy-theme-bg-current 2>/dev/null || echo unknown))"

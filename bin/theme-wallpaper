@@ -1,0 +1,40 @@
+#!/bin/bash
+# Set the desktop wallpaper WITHOUT regenerating the color scheme.
+#
+# Usage:
+#   theme-wallpaper                         # open background picker
+#   theme-wallpaper /path/to/image.jpg      # set this image
+#   theme-wallpaper next                    # cycle theme backgrounds
+#
+# Colors alone: theme-colors <theme-name>
+# Colors from wallpaper: aether --generate /path/to.jpg
+
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  exec omarchy-theme-bg-switcher
+fi
+
+if [[ $1 == "-h" || $1 == "--help" ]]; then
+  echo "Usage: theme-wallpaper [path|next]"
+  echo "  (no args)  open the Omarchy background switcher"
+  echo "  <path>     set that image as wallpaper"
+  echo "  next       cycle to the next background for the current theme"
+  exit 0
+fi
+
+case "$1" in
+  next)
+    omarchy-theme-bg-next
+    ;;
+  *)
+    if [[ -f $1 ]]; then
+      omarchy-theme-bg-set "$1"
+    else
+      echo "Not a file: $1" >&2
+      exit 1
+    fi
+    ;;
+esac
+
+echo "Wallpaper → $(omarchy-theme-bg-current 2>/dev/null || echo set)"

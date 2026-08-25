@@ -8,9 +8,11 @@ hl.config({
 
   decoration = {
     rounding = 0,
-    active_opacity = 0.95,
-    inactive_opacity = 0.95,
-    dim_inactive = true,
+    -- Solid windows: wallpaper stays behind them, not bleeding through.
+    -- Set both to e.g. 0.92 if you want a light frosted look later.
+    active_opacity = 1.0,
+    inactive_opacity = 1.0,
+    dim_inactive = false,
     dim_strength = 0,
   },
 

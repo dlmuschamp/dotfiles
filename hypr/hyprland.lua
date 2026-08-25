@@ -27,6 +27,13 @@ require("hypr.looknfeel")
 require("hypr.autostart")
 require("default.hypr.toggles")
 
+-- Omarchy's default/hypr/windows.lua tags every window default-opacity at
+-- 0.985/0.96 (overrides looknfeel). Browsers get a separate 1.0/0.985 rule.
+-- Force solid for everything — these run last so they win.
+o.window(".*", { tag = "-default-opacity", opacity = "1 1" })
+o.window({ tag = "chromium-based-browser" }, { opacity = "1 1" })
+o.window({ tag = "firefox-based-browser" }, { opacity = "1 1" })
+
 -- Published Picture-in-Picture behavior.
 o.window({ title = "^(Picture.*picture)$" }, {
   float = true,
