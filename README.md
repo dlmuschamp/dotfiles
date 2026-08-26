@@ -37,7 +37,14 @@ Required Arch packages:
 ```text
 quickshell jq hyprlock hypridle hyprsunset hyprpicker inotify-tools
 xdg-terminal-exec nautilus ttf-jetbrains-mono-nerd noto-fonts-emoji
+gnome-themes-extra
 ```
+
+GTK apps follow dark mode via the tracked `gtk-3.0/` and `gtk-4.0/`
+`settings.ini` overrides (`prefer-dark` + `Adwaita-dark`). Bootstrap clones
+[ubuntu/yaru](https://github.com/ubuntu/yaru) into `~/.local/src/ubuntu-yaru`
+and installs the Yaru icon flavors Omarchy themes reference (including
+`Yaru-magenta`) under `~/.local/share/icons`.
 
 The bar, menus, and panels draw their icons from Nerd Font private-use
 codepoints, and `fontconfig/fonts.conf` points the `monospace` alias at

@@ -73,7 +73,71 @@ install_doom_emacs() {
 
 install_doom_emacs
 
-for config in alacritty doom fontconfig hypr nvim omarchy sioyek tmux uwsm; do
+# Ubuntu Yaru icons (what Omarchy themes reference via icons.theme). Cloned from
+# upstream and installed under XDG_DATA_HOME/icons so Nautilus and GTK apps get
+# their folder/mime icons without the Omarchy pacman package.
+install_yaru_icons() {
+  local yaru_src="$HOME/.local/src/ubuntu-yaru"
+  local icons_dest="$data_home/icons"
+  local theme accent
+
+  mkdir -p "$(dirname -- "$yaru_src")" "$icons_dest"
+
+  if [[ ! -d $yaru_src/.git ]]; then
+    if [[ -e $yaru_src || -L $yaru_src ]]; then
+      backup_path "$yaru_src"
+    fi
+    git clone --depth 1 https://github.com/ubuntu/yaru.git "$yaru_src"
+  fi
+
+  # Skip rebuild when the active Omarchy accent is already installed.
+  if [[ -f $icons_dest/Yaru/index.theme && -f $icons_dest/Yaru-magenta/index.theme ]]; then
+    printf 'Yaru icons already installed under %s\n' "$icons_dest"
+    return
+  fi
+
+  (
+    cd "$yaru_src/icons"
+    bash src/symlinks/generate-symlinks.sh --all --variant default >/dev/null
+    bash src/symlinks/generate-symlinks.sh --all --variant dark >/dev/null || true
+    python3 src/generate-index-theme.py Yaru \
+      --source-dir "$yaru_src/icons/Yaru" \
+      --output-dir "$yaru_src/icons/Yaru" \
+      --output-name index.theme \
+      --comment 'Ubuntu Yaru icon theme' >/dev/null
+    python3 src/generate-index-theme.py Yaru-dark \
+      --source-dir "$yaru_src/icons/Yaru-dark" \
+      --output-dir "$yaru_src/icons/Yaru-dark" \
+      --output-name index.theme \
+      --inherits Yaru --inherits hicolor \
+      --comment 'Ubuntu Yaru dark icon theme' >/dev/null
+    for accent in magenta blue olive purple red sage yellow prussiangreen wartybrown mate bark; do
+      [[ -d $yaru_src/icons/Yaru-$accent ]] || continue
+      bash src/symlinks/generate-symlinks.sh --all --variant "$accent" >/dev/null || true
+      python3 src/generate-index-theme.py "Yaru-$accent" \
+        --source-dir "$yaru_src/icons/Yaru-$accent" \
+        --output-dir "$yaru_src/icons/Yaru-$accent" \
+        --output-name index.theme \
+        --inherits Yaru --inherits hicolor \
+        --comment "Ubuntu Yaru $accent icon theme" >/dev/null
+    done
+  )
+
+  for theme in Yaru Yaru-dark Yaru-magenta Yaru-blue Yaru-olive Yaru-purple \
+               Yaru-red Yaru-sage Yaru-yellow Yaru-prussiangreen \
+               Yaru-wartybrown Yaru-mate Yaru-bark; do
+    [[ -d $yaru_src/icons/$theme ]] || continue
+    rm -rf -- "$icons_dest/$theme"
+    cp -a -- "$yaru_src/icons/$theme" "$icons_dest/$theme"
+    gtk-update-icon-cache -f "$icons_dest/$theme" >/dev/null 2>&1 || true
+  done
+
+  printf 'Installed Yaru icons from %s -> %s\n' "$yaru_src" "$icons_dest"
+}
+
+install_yaru_icons
+
+for config in alacritty doom fontconfig gtk-3.0 gtk-4.0 hypr nvim omarchy sioyek tmux uwsm; do
   link_path "$repo_dir/$config" "$config_home/$config"
 done
 
