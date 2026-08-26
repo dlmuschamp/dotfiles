@@ -32,6 +32,18 @@ symlinks the tracked configurations into `~/.config`, personal commands into
 Existing non-symlinked targets are moved to timestamped backups rather than
 overwritten.
 
+After bootstrap (or whenever the greeter drifts), install the tracked SDDM
+theme and login PAM policy (needs sudo / fingerprint once):
+
+```sh
+dotfiles-pam-login
+dotfiles-sddm-install
+```
+
+Hyprlock and the desktop both read
+`~/.local/state/omarchy/current/background`. The SDDM greeter copies that
+same image into its theme as `background.jpg`.
+
 Required Arch packages:
 
 ```text

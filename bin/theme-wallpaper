@@ -37,4 +37,15 @@ case "$1" in
     ;;
 esac
 
+# Keep the SDDM greeter wallpaper in sync when the theme is installed.
+if [[ -d /usr/share/sddm/themes/omarchy ]]; then
+  bg=$(readlink -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/current/background" 2>/dev/null || true)
+  if [[ -f ${bg:-} ]]; then
+    case "${bg,,}" in
+      *.jpg|*.jpeg) sudo cp -- "$bg" /usr/share/sddm/themes/omarchy/background.jpg ;;
+      *) sudo cp -- "$bg" /usr/share/sddm/themes/omarchy/background.jpg ;;
+    esac
+  fi
+fi
+
 echo "Wallpaper → $(omarchy-theme-bg-current 2>/dev/null || echo set)"

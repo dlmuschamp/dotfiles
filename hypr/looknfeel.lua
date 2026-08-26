@@ -19,4 +19,11 @@ hl.config({
   animations = {
     enabled = true,
   },
+
+  -- Omarchy/Quickshell paints the real wallpaper; without this Hyprland can
+  -- flash its stock anime walls whenever that layer is not covering yet.
+  misc = {
+    force_default_wallpaper = 0,
+    disable_hyprland_logo = true,
+  },
 })
