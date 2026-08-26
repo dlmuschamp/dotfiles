@@ -17,15 +17,27 @@ if [[ ! -d $theme_src ]]; then
 fi
 
 omarchy_etc="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy/etc/sddm.conf.d"
-sudo mkdir -p "$conf_d" "$theme_dst"
+omarchy_sddm="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy/default/sddm"
+sudo mkdir -p "$conf_d" "$theme_dst" /usr/share/sddm
 sudo cp -a -- "$theme_src"/. "$theme_dst"/
+
+# Wayland greeter needs this compositor stub; without it, skip the Wayland
+# drop-in so SDDM keeps the working X11 greeter instead of a broken login.
+if [[ -f $omarchy_sddm/hyprland.lua ]]; then
+  sudo cp -- "$omarchy_sddm/hyprland.lua" /usr/share/sddm/hyprland.lua
+fi
+
 if [[ -f $omarchy_etc/10-theme.conf ]]; then
   sudo cp -- "$omarchy_etc/10-theme.conf" "$conf_d/10-theme.conf"
 else
   printf '%s\n' '[Theme]' 'Current=omarchy' | sudo tee "$conf_d/10-theme.conf" >/dev/null
 fi
-if [[ -f $omarchy_etc/10-wayland.conf ]]; then
+
+if [[ -f /usr/share/sddm/hyprland.lua && -f $omarchy_etc/10-wayland.conf ]]; then
   sudo cp -- "$omarchy_etc/10-wayland.conf" "$conf_d/10-wayland.conf"
+elif [[ -f $conf_d/10-wayland.conf && ! -f /usr/share/sddm/hyprland.lua ]]; then
+  sudo rm -f -- "$conf_d/10-wayland.conf"
+  printf 'Removed %s (missing /usr/share/sddm/hyprland.lua)\n' "$conf_d/10-wayland.conf"
 fi
 
 if [[ -f ${bg_file:-} ]]; then
