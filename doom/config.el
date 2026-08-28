@@ -4,6 +4,9 @@
 (setq display-line-numbers-type 'relative)
 (setq org-directory "~/org/")
 
+;; Clean/minimal Org → PDF export classes (see org-pdf.el).
+(load! "org-pdf")
+
 ;; Open EWW in the currently selected window instead of Doom's popup.
 (set-popup-rule! "^\\*eww\\*" :ignore t)
 (add-to-list 'display-buffer-alist
