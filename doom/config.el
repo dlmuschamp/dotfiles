@@ -1575,7 +1575,9 @@ the line at point. Saves Org files and pushes writable calendars to GCal."
         ;; Capital D — lowercase d is Doom "Start a debugger" under SPC o.
         :desc "Command center (agenda + chart)" "o D" #'luciano/org-agenda-command-center
         :desc "Command bar chart" "o C" #'luciano/org-show-command-chart
-        :desc "CLOCK time chart" "o T" #'luciano/org-weekly-time-chart
+        ;; T stays with Doom's `+vterm/here' so a terminal can own a pane.
+        :desc "CLOCK time chart" "o H" #'luciano/org-weekly-time-chart
+        :desc "Open vterm here" "o T" #'+vterm/here
         :desc "What's booked" "o B" #'luciano/org-show-schedule-sidecar
         :desc "Arbor timecard" "o W" #'luciano/org-arbor-timecard
         :desc "Add manual CLOCK time" "o +" #'luciano/org-add-manual-time
