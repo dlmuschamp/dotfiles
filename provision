@@ -1,0 +1,149 @@
+#!/bin/bash
+#
+# Takes a fresh Arch install to this environment: packages, then configs.
+#
+#   git clone https://github.com/dlmuschamp/dotfiles ~/dotfiles
+#   cd ~/dotfiles && ./provision
+#
+# Idempotent, so re-running it on an existing machine only fills in gaps.
+# Package sets live in packages/; the symlink layout is bootstrap's job and this
+# script calls it at the end.
+#
+#   --hardware    also install packages/native-hardware.txt (AMD laptop specific)
+#   --no-aur      skip yay and every AUR package
+#   --services    enable system services (SDDM, NetworkManager, Bluetooth, ufw)
+#   --yes         do not pause for confirmation
+
+set -euo pipefail
+
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+want_hardware=0
+want_aur=1
+want_services=0
+assume_yes=0
+
+for arg in "$@"; do
+  case $arg in
+  --hardware) want_hardware=1 ;;
+  --no-aur) want_aur=0 ;;
+  --services) want_services=1 ;;
+  --yes | -y) assume_yes=1 ;;
+  -h | --help)
+    sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^#\s\?//'
+    exit 0
+    ;;
+  *)
+    printf 'Unknown option: %s\n' "$arg" >&2
+    exit 2
+    ;;
+  esac
+done
+
+step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
+warn() { printf '\033[33mwarning:\033[0m %s\n' "$1" >&2; }
+
+if [[ $EUID -eq 0 ]]; then
+  printf 'Run as your normal user, not root. Individual steps call sudo.\n' >&2
+  exit 1
+fi
+
+if ! command -v pacman >/dev/null 2>&1; then
+  printf 'This expects an Arch-based system (pacman not found).\n' >&2
+  exit 1
+fi
+
+# Strip comments and blanks so the manifests stay human-readable.
+read_manifest() {
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[[:space:]]//g' "$1"
+}
+
+if (( ! assume_yes )); then
+  printf 'This will install packages and symlink configs into %s.\n' "$config_home"
+  printf 'Existing non-symlinked files are backed up, not overwritten.\n\n'
+  read -r -p 'Continue? [y/N] ' reply
+  [[ $reply == [yY]* ]] || exit 0
+fi
+
+step 'Refreshing package databases'
+sudo pacman -Sy --noconfirm
+
+# git and base-devel are prerequisites for cloning and for building AUR packages.
+step 'Installing prerequisites'
+sudo pacman -S --needed --noconfirm base-devel git
+
+step 'Installing official packages'
+mapfile -t native < <(read_manifest "$repo_dir/packages/native.txt")
+printf '%s packages from packages/native.txt\n' "${#native[@]}"
+sudo pacman -S --needed --noconfirm "${native[@]}"
+
+if (( want_hardware )); then
+  step 'Installing hardware packages'
+  mapfile -t hw < <(read_manifest "$repo_dir/packages/native-hardware.txt")
+  sudo pacman -S --needed --noconfirm "${hw[@]}"
+else
+  printf '\nSkipping packages/native-hardware.txt (pass --hardware to include it).\n'
+fi
+
+if (( want_aur )); then
+  # yay cannot come from the AUR itself, so build it once from source.
+  if ! command -v yay >/dev/null 2>&1; then
+    step 'Bootstrapping yay'
+    tmp=$(mktemp -d)
+    git clone --depth 1 https://aur.archlinux.org/yay-bin.git "$tmp/yay-bin"
+    (cd "$tmp/yay-bin" && makepkg -si --noconfirm)
+    rm -rf -- "$tmp"
+  fi
+
+  step 'Installing AUR packages'
+  mapfile -t aur < <(read_manifest "$repo_dir/packages/aur.txt")
+  printf '%s packages from packages/aur.txt\n' "${#aur[@]}"
+  yay -S --needed --noconfirm "${aur[@]}"
+fi
+
+if (( want_services )); then
+  step 'Enabling system services'
+  for service in sddm NetworkManager bluetooth ufw; do
+    if systemctl list-unit-files "$service.service" >/dev/null 2>&1; then
+      sudo systemctl enable "$service.service"
+      printf '  enabled %s\n' "$service"
+    else
+      warn "$service.service not present; skipped"
+    fi
+  done
+else
+  printf '\nSkipping service enablement (pass --services to include it).\n'
+fi
+
+step 'Deploying configuration'
+"$repo_dir/bootstrap"
+
+step 'Enabling the weekly update check'
+systemctl --user daemon-reload
+systemctl --user enable --now dotfiles-update.timer
+printf 'Next run: %s\n' \
+  "$(systemctl --user list-timers dotfiles-update.timer --no-pager 2>/dev/null | sed -n 2p || echo unknown)"
+
+# Doom's installer pulls ~150 Emacs packages and byte-compiles them, so it is
+# slow and noisy. Run it last, and never fail provision on it.
+if command -v "$HOME/.local/bin/doom" >/dev/null 2>&1; then
+  step 'Installing Doom Emacs packages'
+  "$HOME/.local/bin/doom" install --no-config --no-env || \
+    warn 'doom install failed; run it manually'
+fi
+
+cat <<'EOF'
+
+==> Provisioned.
+
+Remaining steps that need a human:
+
+  1. Log out and back in so UWSM picks up the tracked environment.
+  2. dotfiles-pam-login && dotfiles-sddm-install   (SDDM theme + fingerprint PAM)
+  3. Launch Zen once to create its profile, then re-run ./bootstrap so
+     zen/user.js gets linked, quit Zen, and run: zen-sso-fix
+  4. Sign in to Zen Sync to pull down bookmarks, passwords and extensions.
+     Those are account data, deliberately not stored in this repo.
+
+EOF

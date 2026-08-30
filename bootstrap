@@ -137,6 +137,55 @@ install_yaru_icons() {
 
 install_yaru_icons
 
+# Zen keeps prefs inside a randomly named profile directory, so resolve the
+# active profile from profiles.ini and link user.js into it. Skipped when Zen has
+# never run, since the profile does not exist yet; re-run bootstrap after the
+# first launch. Cookie exceptions cannot be prefs and are applied by zen-sso-fix.
+install_zen_prefs() {
+  local zen_home="$config_home/zen"
+  local profile_rel profile
+
+  if [[ ! -f $zen_home/profiles.ini ]]; then
+    printf 'Zen has no profile yet; run ./bootstrap again after first launch.\n'
+    return
+  fi
+
+  profile_rel=$(python3 - "$zen_home/profiles.ini" <<'PY'
+import configparser, sys
+cp = configparser.ConfigParser()
+cp.read(sys.argv[1])
+install = next((cp[s]["Default"] for s in cp.sections()
+                if s.startswith("Install") and cp[s].get("Default")), None)
+if install:
+    print(install)
+    raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Default") == "1":
+        print(cp[s]["Path"])
+        raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Path"):
+        print(cp[s]["Path"])
+        raise SystemExit
+PY
+  ) || true
+
+  if [[ -z $profile_rel ]]; then
+    printf 'Could not resolve a Zen profile from %s/profiles.ini\n' "$zen_home" >&2
+    return
+  fi
+
+  profile="$zen_home/$profile_rel"
+  if [[ ! -d $profile ]]; then
+    printf 'Zen profile %s missing; skipping user.js\n' "$profile" >&2
+    return
+  fi
+
+  link_path "$repo_dir/zen/user.js" "$profile/user.js"
+}
+
+install_zen_prefs
+
 for config in alacritty doom fontconfig gtk-3.0 gtk-4.0 hypr nvim omarchy sioyek tmux uwsm; do
   link_path "$repo_dir/$config" "$config_home/$config"
 done
@@ -145,6 +194,13 @@ link_path \
   "$repo_dir/xdg-terminal-exec/hyprland-xdg-terminals.list" \
   "$config_home/hyprland-xdg-terminals.list"
 link_path "$repo_dir/nvim/.neoconf.json" "$HOME/.neoconf.json"
+
+# User units are linked, not copied, so edits in the repo take effect after a
+# `systemctl --user daemon-reload`. Enabling them is provision's job.
+for unit in "$repo_dir"/systemd/user/*; do
+  [[ -f $unit ]] || continue
+  link_path "$unit" "$config_home/systemd/user/$(basename -- "$unit")"
+done
 
 for command in "$repo_dir"/bin/* "$repo_dir"/automations/bin/*; do
   [[ -f $command ]] || continue

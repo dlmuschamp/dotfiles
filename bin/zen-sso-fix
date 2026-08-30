@@ -1,0 +1,87 @@
+#!/bin/bash
+#
+# Grants permanent "allow cookies" exceptions to the Microsoft and Stanford SSO
+# domains, which exempts them from Zen's Total Cookie Protection partitioning.
+#
+# Without this, the hidden login.microsoftonline.com iframe that Outlook uses to
+# silently renew its token gets a partitioned cookie jar, the renewal fails, and
+# OWA responds by logging the session out entirely. The prefs half of the fix is
+# tracked in zen/user.js; this half cannot be expressed as a pref, because
+# permissions live in the profile's SQLite database.
+#
+# Zen must be fully closed, since it holds a write lock on permissions.sqlite.
+
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+zen_home="$config_home/zen"
+
+if [[ ! -f $zen_home/profiles.ini ]]; then
+  printf 'No Zen profiles.ini under %s. Launch Zen once first.\n' "$zen_home" >&2
+  exit 1
+fi
+
+if pgrep -x zen-bin >/dev/null || pgrep -f '/zen/zen$' >/dev/null; then
+  printf 'Zen is still running. Quit it completely, then re-run.\n' >&2
+  exit 1
+fi
+
+# profiles.ini names the profile directory with a random prefix, so resolve it
+# rather than hardcoding. An [InstallHASH] section's Default= wins over a
+# [ProfileN] Default=1, matching Zen's own precedence.
+profile_rel=$(python3 - "$zen_home/profiles.ini" <<'PY'
+import configparser, sys
+cp = configparser.ConfigParser()
+cp.read(sys.argv[1])
+install = next((cp[s]["Default"] for s in cp.sections()
+                if s.startswith("Install") and cp[s].get("Default")), None)
+if install:
+    print(install)
+    raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Default") == "1":
+        print(cp[s]["Path"])
+        raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Path"):
+        print(cp[s]["Path"])
+        raise SystemExit
+raise SystemExit("no profile found in profiles.ini")
+PY
+)
+
+profile="$zen_home/$profile_rel"
+db="$profile/permissions.sqlite"
+
+if [[ ! -f $db ]]; then
+  printf 'No permissions.sqlite in %s. Launch Zen once first.\n' "$profile" >&2
+  exit 1
+fi
+
+printf 'Profile: %s\n' "$profile"
+cp -- "$db" "$db.pre-sso-fix.$(date +%Y%m%d%H%M%S)"
+
+# permission=1 is ALLOW; expireType=0 never expires. moz_perms carries no unique
+# constraint, so delete before inserting to stay idempotent across re-runs.
+now_ms=$(( $(date +%s) * 1000 ))
+for origin in \
+  https://login.microsoftonline.com \
+  https://login.live.com \
+  https://login.windows.net \
+  https://outlook.office.com \
+  https://outlook.office365.com \
+  https://outlook.cloud.microsoft \
+  https://cloud.microsoft \
+  https://office.com \
+  https://www.office.com \
+  https://login.stanford.edu \
+  https://idp.stanford.edu
+do
+  sqlite3 "$db" \
+    "DELETE FROM moz_perms WHERE origin='$origin' AND type='cookie';
+     INSERT INTO moz_perms (origin, type, permission, expireType, expireTime, modificationTime)
+     VALUES ('$origin', 'cookie', 1, 0, 0, $now_ms);"
+  printf '  allowed cookies: %s\n' "$origin"
+done
+
+printf '\nDone. Start Zen and sign in to Outlook once with "Stay signed in" checked.\n'
