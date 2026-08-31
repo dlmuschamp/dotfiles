@@ -6,22 +6,21 @@
 // live in the profile's permissions.sqlite instead; `zen-sso-fix` applies them.
 
 // --- Microsoft / Stanford SSO ------------------------------------------------
-// Symptom this fixes: outlook.cloud.microsoft loads, its silent token renewal
-// in the hidden login.microsoftonline.com iframe fails, and OWA reacts with a
-// full logout ("You're signed out of your account. It's a good idea to close
-// all browser windows.").
+// These only widen the margins around Outlook's auth flow. They are not the fix
+// for the "You're signed out of your account" loop: that one is stale OWA site
+// data on outlook.cloud.microsoft, and `zen-sso-fix` clears it.
 //
-// Bounce Tracking Protection classifies login.microsoftonline.com as a bounce
-// tracker, because a working SSO redirect passes through it without any user
-// interaction, and purges its session cookies (ESTSAUTH, SignInStateCookie) on
-// a timer. Persistent cookies like ESTSAUTHPERSISTENT survive, which is why the
-// breakage looks intermittent rather than total.
-// 0 = disabled, 1 = enabled, 2 = dry-run (logs only, purges nothing).
-user_pref("privacy.bounceTrackingProtection.mode", 0);
-
-// Storage-access grants are what let that login iframe reach its unpartitioned
-// cookies under Total Cookie Protection. At the default expiry they lapse often
-// enough to reintroduce the logout loop, so widen them. Seconds.
+// Storage-access grants are what let Outlook's login.microsoftonline.com iframe
+// reach its unpartitioned cookies under Total Cookie Protection. At the default
+// expiry they lapse while a mail tab sits open for a workday, so widen them to
+// 90 days. Seconds.
 user_pref("privacy.restrict3rdpartystorage.expiration", 7776000);
 user_pref("privacy.restrict3rdpartystorage.expiration_visited", 7776000);
 user_pref("privacy.restrict3rdpartystorage.expiration_redirect", 7776000);
+
+// Bounce Tracking Protection can purge session cookies for domains it decides
+// are bounce trackers, which a working SSO redirector looks exactly like.
+// It is already inert here (microsoftonline.com is recorded as user-activated),
+// but pin it off so a Zen default change cannot reintroduce the failure.
+// 0 = disabled, 1 = enabled, 2 = dry-run (logs only, purges nothing).
+user_pref("privacy.bounceTrackingProtection.mode", 0);

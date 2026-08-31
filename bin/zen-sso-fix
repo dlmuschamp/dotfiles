@@ -1,19 +1,58 @@
 #!/bin/bash
 #
-# Grants permanent "allow cookies" exceptions to the Microsoft and Stanford SSO
-# domains, which exempts them from Zen's Total Cookie Protection partitioning.
+# Recovers Outlook Web when it signs you out immediately after a successful
+# Stanford login ("You're signed out of your account. It's a good idea to close
+# all browser windows.").
 #
-# Without this, the hidden login.microsoftonline.com iframe that Outlook uses to
-# silently renew its token gets a partitioned cookie jar, the renewal fails, and
-# OWA responds by logging the session out entirely. The prefs half of the fix is
-# tracked in zen/user.js; this half cannot be expressed as a pref, because
-# permissions live in the profile's SQLite database.
+# What goes wrong: OWA boots on outlook.cloud.microsoft, reads the account
+# identity and MSAL state it left in localStorage/IndexedDB from a previous
+# session, finds it inconsistent with the token it just obtained, and calls
+# logoutRedirect() a second later. Its service worker keeps serving the same
+# poisoned boot. Cookies and privacy settings are not involved, which is why a
+# private window or a fresh profile works and clearing cookies alone does not.
 #
-# Zen must be fully closed, since it holds a write lock on permissions.sqlite.
+# So the fix is to wipe every trace of the Microsoft origins' site data and let
+# OWA boot from nothing. Stanford's own SSO state is deliberately left alone so
+# this does not cost you a Duo prompt.
+#
+# Zen must be fully closed, since it holds write locks on these databases.
+#
+# Usage: zen-sso-fix
 
 set -euo pipefail
 
+# Suffix-matched against cookie hosts and storage origins. Stanford is absent on
+# purpose: clearing login.stanford.edu would drop the Shibboleth session and
+# force a fresh Duo push on the next sign-in.
+domains=(
+  microsoftonline.com
+  cloud.microsoft
+  office.com
+  office365.com
+  outlook.com
+  live.com
+  windows.net
+)
+
+# Cookie exceptions, kept from the previous version of this script. They exempt
+# the SSO domains from Total Cookie Protection partitioning. Not the cause of
+# the logout loop, but they cost nothing and remove a variable.
+allow_origins=(
+  https://login.microsoftonline.com
+  https://login.live.com
+  https://login.windows.net
+  https://outlook.office.com
+  https://outlook.office365.com
+  https://outlook.cloud.microsoft
+  https://cloud.microsoft
+  https://office.com
+  https://www.office.com
+  https://login.stanford.edu
+  https://idp.stanford.edu
+)
+
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
 zen_home="$config_home/zen"
 
 if [[ ! -f $zen_home/profiles.ini ]]; then
@@ -51,37 +90,87 @@ PY
 )
 
 profile="$zen_home/$profile_rel"
-db="$profile/permissions.sqlite"
+[[ -d $profile ]] || { printf 'Resolved profile %s does not exist.\n' "$profile" >&2; exit 1; }
+printf 'Profile: %s\n\n' "$profile"
 
-if [[ ! -f $db ]]; then
-  printf 'No permissions.sqlite in %s. Launch Zen once first.\n' "$profile" >&2
-  exit 1
+backup="$profile/.sso-fix-backup.$(date +%Y%m%d%H%M%S)"
+mkdir -p "$backup"
+for f in cookies.sqlite permissions.sqlite storage.sqlite serviceworker.txt; do
+  [[ -f $profile/$f ]] && cp -- "$profile/$f" "$backup/$f"
+done
+printf 'Backed up databases to %s\n\n' "$backup"
+
+# Build the SQL host predicate once: exact match plus any subdomain.
+host_pred=""
+for d in "${domains[@]}"; do
+  host_pred+="${host_pred:+ OR }host = '$d' OR host LIKE '%.$d'"
+done
+
+# 1. Cookies. Also drops partitioned copies these sites left inside other sites,
+#    since those carry the same stale identity.
+part_pred=""
+for d in "${domains[@]}"; do
+  part_pred+="${part_pred:+ OR }originAttributes LIKE '%$d%'"
+done
+before=$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies;")
+sqlite3 "$profile/cookies.sqlite" "DELETE FROM moz_cookies WHERE ($host_pred) OR ($part_pred);"
+after=$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies;")
+printf 'Cookies removed: %s\n' "$(( before - after ))"
+
+# 2. localStorage, IndexedDB and Cache API. This is the part that actually
+#    clears the poisoned OWA boot state.
+removed=0
+shopt -s nullglob
+for d in "${domains[@]}"; do
+  for dir in "$profile"/storage/default/*"$d"*; do
+    [[ -d $dir ]] || continue
+    rm -rf -- "$dir"
+    printf '  cleared storage: %s\n' "$(basename "$dir")"
+    removed=$(( removed + 1 ))
+  done
+done
+shopt -u nullglob
+printf 'Storage origins cleared: %s\n' "$removed"
+
+# 3. Quota manager index, so it does not point at directories that are now gone.
+origin_pred=""
+for d in "${domains[@]}"; do
+  origin_pred+="${origin_pred:+ OR }origin LIKE '%$d'"
+done
+sqlite3 "$profile/storage.sqlite" "DELETE FROM origin WHERE $origin_pred;" 2>/dev/null || true
+
+# 4. Service worker registrations. The file is a positional flat format that is
+#    not safe to edit line by line, so drop it whole; every site simply
+#    re-registers its worker on the next visit.
+if [[ -f $profile/serviceworker.txt ]]; then
+  rm -f -- "$profile/serviceworker.txt"
+  printf 'Service worker registrations reset\n'
 fi
 
-printf 'Profile: %s\n' "$profile"
-cp -- "$db" "$db.pre-sso-fix.$(date +%Y%m%d%H%M%S)"
+# 5. HTTP cache, which can still be holding the stale OWA service worker script.
+cache_dir="$cache_home/zen/$profile_rel/cache2"
+if [[ -d $cache_dir ]]; then
+  rm -rf -- "$cache_dir"
+  printf 'HTTP cache cleared\n'
+fi
 
-# permission=1 is ALLOW; expireType=0 never expires. moz_perms carries no unique
-# constraint, so delete before inserting to stay idempotent across re-runs.
+# 6. Cookie exceptions. permission=1 is ALLOW, expireType=0 never expires.
+#    moz_perms has no unique constraint, so delete before insert to stay
+#    idempotent across re-runs.
 now_ms=$(( $(date +%s) * 1000 ))
-for origin in \
-  https://login.microsoftonline.com \
-  https://login.live.com \
-  https://login.windows.net \
-  https://outlook.office.com \
-  https://outlook.office365.com \
-  https://outlook.cloud.microsoft \
-  https://cloud.microsoft \
-  https://office.com \
-  https://www.office.com \
-  https://login.stanford.edu \
-  https://idp.stanford.edu
-do
-  sqlite3 "$db" \
+for origin in "${allow_origins[@]}"; do
+  sqlite3 "$profile/permissions.sqlite" \
     "DELETE FROM moz_perms WHERE origin='$origin' AND type='cookie';
      INSERT INTO moz_perms (origin, type, permission, expireType, expireTime, modificationTime)
      VALUES ('$origin', 'cookie', 1, 0, 0, $now_ms);"
-  printf '  allowed cookies: %s\n' "$origin"
 done
+printf 'Cookie exceptions applied: %s\n' "${#allow_origins[@]}"
 
-printf '\nDone. Start Zen and sign in to Outlook once with "Stay signed in" checked.\n'
+cat <<'EOF'
+
+Done. Now start Zen and go to https://outlook.office.com/mail/ directly,
+rather than restoring an old Outlook tab, so OWA boots from a clean slate.
+Tick "Stay signed in" when Microsoft offers it.
+
+If the sign-out ever comes back, quit Zen and run this again.
+EOF
