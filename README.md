@@ -76,6 +76,12 @@ same image into its theme as `background.jpg`.
 
 Required packages are tracked in `packages/` and installed by `./provision`.
 
+Desktop notifications are handled by omarchy-shell (not mako or dunst).
+`./bootstrap` masks `mako.service` so it cannot steal
+`org.freedesktop.Notifications` at login; without that, Super+, Super+Alt+,
+and screenshot edit toasts (`tensaku-edit` via the notification click) silently
+fail because the keybindings talk to omarchy-shell while mako shows the popups.
+
 GTK apps follow dark mode via the tracked `gtk-3.0/` and `gtk-4.0/`
 `settings.ini` overrides (`prefer-dark` + `Adwaita-dark`). Bootstrap clones
 [ubuntu/yaru](https://github.com/ubuntu/yaru) into `~/.local/src/ubuntu-yaru`
