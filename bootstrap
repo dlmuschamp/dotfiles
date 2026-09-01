@@ -58,6 +58,27 @@ install_runtime() {
 
 install_runtime
 
+# Omarchy shell registers org.freedesktop.Notifications. graphical-session.target
+# still pulls in mako even when disabled, and mako wins the race at login — so
+# Super+, dismiss/invoke shortcuts and screenshot edit toasts stop working.
+mask_conflicting_notification_daemon() {
+  if ! systemctl --user show mako.service &>/dev/null; then
+    return
+  fi
+
+  if [[ $(systemctl --user is-enabled mako.service 2>/dev/null || true) != masked ]]; then
+    systemctl --user mask mako.service
+    printf 'Masked mako.service so omarchy-shell can own notifications.\n'
+  fi
+
+  if systemctl --user is-active mako.service &>/dev/null; then
+    systemctl --user stop mako.service
+    printf 'Stopped mako.service. Restart omarchy-shell if notifications still misroute.\n'
+  fi
+}
+
+mask_conflicting_notification_daemon
+
 # Doom Emacs framework lives outside the repo (its own git checkout). User
 # config is tracked under doom/ and linked to XDG_CONFIG_HOME/doom.
 install_doom_emacs() {

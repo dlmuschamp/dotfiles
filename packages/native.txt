@@ -42,7 +42,6 @@ lazygit
 libnotify
 libpulse
 lsp-plugins-lv2
-mako
 man-db
 man-pages
 meson
