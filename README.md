@@ -76,11 +76,40 @@ same image into its theme as `background.jpg`.
 
 Required packages are tracked in `packages/` and installed by `./provision`.
 
-Desktop notifications are handled by omarchy-shell (not mako or dunst).
-`./bootstrap` masks `mako.service` so it cannot steal
-`org.freedesktop.Notifications` at login; without that, Super+, Super+Alt+,
-and screenshot edit toasts (`tensaku-edit` via the notification click) silently
-fail because the keybindings talk to omarchy-shell while mako shows the popups.
+### Notifications
+
+Desktop notifications are rendered by **omarchy-shell** (Quickshell), not mako or
+dunst. `graphical-session.target` pulls in `mako.service` even when it is
+disabled, and mako usually wins the race for `org.freedesktop.Notifications` at
+login. When that happens, popups appear to work but omarchy-shell never
+registers as the notification server — so dismiss/invoke shortcuts and
+screenshot edit toasts silently fail.
+
+`./bootstrap` masks and stops `mako.service` so omarchy-shell can own the dbus
+name. `mako` is also omitted from `packages/native.txt` for the same reason.
+
+Keybindings (from `hypr/bindings.lua`):
+
+| Shortcut | Action |
+| --- | --- |
+| `Super + ,` | Dismiss last notification |
+| `Super + Shift + ,` | Dismiss all notifications |
+| `Super + Ctrl + ,` | Toggle do not disturb |
+| `Super + Alt + ,` | Invoke last notification (e.g. open screenshot in Tensaku) |
+| `Super + Shift + Alt + ,` | Notification history |
+
+After a screenshot (`Print`), the toast includes a click action and the
+`Super + Alt + ,` shortcut both run `tensaku-edit` on the saved file.
+
+**If notifications misbehave after an upgrade or login**, check who owns the
+dbus name and restart the shell:
+
+```sh
+busctl --user list | grep Notifications   # should show quickshell, not mako
+systemctl --user is-enabled mako          # should be masked
+./bootstrap                                 # re-apply the mako mask
+pkill -f 'quickshell.*omarchy'              # autostart relaunches omarchy-shell
+```
 
 GTK apps follow dark mode via the tracked `gtk-3.0/` and `gtk-4.0/`
 `settings.ini` overrides (`prefer-dark` + `Adwaita-dark`). Bootstrap clones
@@ -110,25 +139,49 @@ this repo; pull them down with Zen Sync instead.
 ### The Microsoft SSO logout loop
 
 Signing in to Outlook would land on "You're signed out of your account. It's a
-good idea to close all browser windows," over and over. Two Firefox
-anti-tracking mechanisms were the cause, neither of which Brave applies to
-Microsoft login domains:
+good idea to close all browser windows," over and over — even in Zen safe mode,
+while a private window worked fine.
+
+**Root cause:** stale Outlook *site data* in the normal profile, not extensions
+or missing cookies. OWA boots against localStorage (including
+`olk-login_hint_claim_*`), IndexedDB, service workers at `/mail/sw.js`, and
+Outlook cookies left from earlier sessions. A fresh Stanford SAML token
+disagrees with that cached identity and OWA calls `logoutRedirect()`. Private
+windows work because they start with none of this state. Safe mode does not
+help because it only disables extensions; the poisoned site data is still there.
+
+Two Firefox anti-tracking mechanisms also widen the margins around Outlook's
+auth flow and are pinned in `zen/user.js`:
 
 * **Bounce Tracking Protection** classifies `login.microsoftonline.com` as a
-  bounce tracker, since a working SSO redirect passes through it without any
-  user interaction, and purges its session cookies on a timer. `user.js`
+  bounce tracker and can purge its session cookies on a timer. `user.js`
   disables it.
 * **Total Cookie Protection** partitions the hidden `login.microsoftonline.com`
-  iframe that OWA uses to silently renew its token. The renewal fails and OWA
-  responds by logging the session out entirely.
+  iframe that OWA uses to silently renew its token. Cookie exceptions in
+  `permissions.sqlite` prevent that.
 
-Cookie exceptions are not expressible as prefs, so the second half of the fix
-lives in `bin/zen-sso-fix`, which writes permanent allow rules into the
-profile's `permissions.sqlite`. Zen must be closed when it runs:
+Cookie exceptions are not expressible as prefs, so `bin/zen-sso-fix` applies
+them on every run. Zen must be fully closed when it runs.
+
+**Recovery** — clears Outlook cookies, localStorage, IndexedDB, and service
+workers for OWA hosts only. Your AAD, Stanford, and Duo cookies survive, so
+this should not cost a password prompt or Duo push:
 
 ```sh
-zen-sso-fix
+zen-sso-fix          # default: Outlook site data + cookies
+zen-sso-fix --deep   # widen to every Microsoft origin if the default is not enough
 ```
+
+**Daily use** — always open mail at the `/mail/` path, never the bare domain:
+
+```sh
+zen-outlook              # open https://outlook.office.com/mail/ in a new tab
+zen-outlook --recover    # quit Zen, run zen-sso-fix, reopen mail
+```
+
+If the sign-out page returns, quit Zen and run `zen-outlook --recover` (or
+`zen-sso-fix` then reopen manually). Do not disable cookies for Outlook — that
+breaks SSO entirely.
 
 ## Maintenance (`bin/dotfiles-update`)
 
