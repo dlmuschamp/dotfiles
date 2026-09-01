@@ -1,0 +1,10 @@
+# AUR packages, installed with: yay -S --needed
+# yay itself is bootstrapped from source by provision, so it is not listed.
+# brave-bin is installed but deliberately untracked.
+
+aether
+sioyek-appimage
+tensaku
+ttf-symbola
+xdg-terminal-exec
+zen-browser-bin

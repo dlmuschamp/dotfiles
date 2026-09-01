@@ -1,0 +1,49 @@
+#!/bin/bash
+# Configure login/lock PAM:
+#   SDDM  → password required, then fingerprint required (user asked for this)
+#   hyprlock → password OR fingerprint (hyprlock D-Bus fingerprint + clean PAM)
+#   console local login → password only (no stacked fingerprint)
+
+set -euo pipefail
+
+sudo tee /etc/pam.d/sddm >/dev/null <<'EOF'
+#%PAM-1.0
+# Graphical login: password first, then fingerprint (both required).
+# Do not include system-login's auth stack here — that would re-run pam_unix.
+
+auth        requisite   pam_nologin.so
+auth        required    pam_unix.so     try_first_pass nullok
+auth        required    pam_fprintd.so
+-auth       optional    pam_gnome_keyring.so
+-auth       optional    pam_kwallet5.so
+
+account     include     system-login
+
+password    include     system-login
+-password   optional    pam_gnome_keyring.so    use_authtok
+
+session     optional    pam_keyinit.so          force revoke
+session     include     system-login
+-session    optional    pam_gnome_keyring.so    auto_start
+-session    optional    pam_kwallet5.so         auto_start
+EOF
+
+sudo tee /etc/pam.d/hyprlock >/dev/null <<'EOF'
+# Password unlock via PAM; fingerprint unlock via hyprlock's fprintd D-Bus path
+# (auth:fingerprint:enabled). Do not also stack pam_fprintd here or the
+# password path waits on the reader and feels like both are required.
+auth        include     login
+account     include     login
+password    include     login
+session     include     login
+EOF
+
+sudo tee /etc/pam.d/system-local-login >/dev/null <<'EOF'
+#%PAM-1.0
+auth      include   system-login
+account   include   system-login
+password  include   system-login
+session   include   system-login
+EOF
+
+printf 'PAM updated: SDDM=password→fingerprint, hyprlock=either/or, console=password\n'

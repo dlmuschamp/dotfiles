@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# System and AUR maintenance.
+#
+#   dotfiles-update            interactive full upgrade (repos, AUR, cache, Doom)
+#   dotfiles-update --check    unprivileged check, notify only, changes nothing
+#
+# The weekly timer runs --check rather than a full upgrade on purpose. Arch
+# upgrades occasionally need a human: a manual intervention posted to Arch news,
+# a pacnew merge, or a kernel update that wants a reboot before modules reload.
+# An unattended `pacman -Syu` can also leave the system half-upgraded if it is
+# interrupted, which is much worse to recover from than a delayed update.
+
+set -euo pipefail
+
+mode=${1:-upgrade}
+
+notify() {
+  command -v notify-send >/dev/null 2>&1 || return 0
+  notify-send --app-name='Dotfiles' "$@" || true
+}
+
+case $mode in
+--check)
+  # checkupdates and `yay -Qua` both run unprivileged against a throwaway
+  # database copy, so this never touches the live pacman state.
+  repo_list=$(checkupdates 2>/dev/null || true)
+  aur_list=$(yay -Qua 2>/dev/null || true)
+
+  repo_n=$(printf '%s' "$repo_list" | grep -c . || true)
+  aur_n=$(printf '%s' "$aur_list" | grep -c . || true)
+
+  printf 'Repo updates: %s\nAUR updates:  %s\n' "$repo_n" "$aur_n"
+  [[ -n $repo_list ]] && printf '\n%s\n' "$repo_list"
+  [[ -n $aur_list ]] && printf '\n%s\n' "$aur_list"
+
+  if (( repo_n + aur_n > 0 )); then
+    notify --urgency=normal --icon=system-software-update \
+      "$((repo_n + aur_n)) updates available" \
+      "$repo_n from repos, $aur_n from the AUR.\nRun dotfiles-update to apply."
+  fi
+  ;;
+
+upgrade)
+  printf '==> Checking https://archlinux.org/news before upgrading is a good habit.\n\n'
+
+  printf '==> Upgrading official packages\n'
+  sudo pacman -Syu
+
+  if command -v yay >/dev/null 2>&1; then
+    printf '\n==> Upgrading AUR packages\n'
+    yay -Sua
+  fi
+
+  # Keep the two most recent versions of each package so a bad upgrade can be
+  # rolled back with `pacman -U`, and drop everything older.
+  if command -v paccache >/dev/null 2>&1; then
+    printf '\n==> Pruning package cache (keeping 2 versions)\n'
+    sudo paccache -rk2
+    sudo paccache -ruk0
+  fi
+
+  # Emacs packages pin to the Emacs version, so a bumped emacs-wayland needs a
+  # rebuild or Doom starts throwing native-compilation errors.
+  if command -v doom >/dev/null 2>&1; then
+    printf '\n==> Syncing Doom Emacs\n'
+    doom sync
+  fi
+
+  if command -v pacdiff >/dev/null 2>&1; then
+    pacnew=$(find /etc -name '*.pacnew' 2>/dev/null | head -20 || true)
+    if [[ -n $pacnew ]]; then
+      printf '\n==> .pacnew files need review; run: sudo -E pacdiff\n%s\n' "$pacnew"
+    fi
+  fi
+
+  printf '\n==> Done.\n'
+  notify --icon=system-software-update 'Upgrade complete' 'Repos and AUR are up to date.'
+  ;;
+
+*)
+  printf 'Usage: dotfiles-update [--check]\n' >&2
+  exit 2
+  ;;
+esac

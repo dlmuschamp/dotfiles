@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly check for pending package updates
+Documentation=https://github.com/dlmuschamp/dotfiles
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dotfiles-update --check
+# Unprivileged and read-only: it inspects a throwaway copy of the pacman
+# database and sends a notification. Nothing is installed without a human.

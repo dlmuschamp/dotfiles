@@ -1,0 +1,66 @@
+#!/bin/bash
+# Install the tracked SDDM greeter (user + password, then fingerprint via PAM)
+# and sync the current Omarchy wallpaper into it.
+
+set -euo pipefail
+
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+theme_src="$repo_dir/sddm/omarchy"
+theme_dst=/usr/share/sddm/themes/omarchy
+conf_d=/etc/sddm.conf.d
+bg_link="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/current/background"
+bg_file=$(readlink -f -- "$bg_link" 2>/dev/null || true)
+
+if [[ ! -d $theme_src ]]; then
+  printf 'Missing theme source: %s\n' "$theme_src" >&2
+  exit 1
+fi
+
+omarchy_etc="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy/etc/sddm.conf.d"
+omarchy_sddm="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy/default/sddm"
+sudo mkdir -p "$conf_d" "$theme_dst" /usr/share/sddm
+sudo cp -a -- "$theme_src"/. "$theme_dst"/
+
+# Wayland greeter needs this compositor stub; without it, skip the Wayland
+# drop-in so SDDM keeps the working X11 greeter instead of a broken login.
+if [[ -f $omarchy_sddm/hyprland.lua ]]; then
+  sudo cp -- "$omarchy_sddm/hyprland.lua" /usr/share/sddm/hyprland.lua
+fi
+
+if [[ -f $omarchy_etc/10-theme.conf ]]; then
+  sudo cp -- "$omarchy_etc/10-theme.conf" "$conf_d/10-theme.conf"
+else
+  printf '%s\n' '[Theme]' 'Current=omarchy' | sudo tee "$conf_d/10-theme.conf" >/dev/null
+fi
+
+if [[ -f /usr/share/sddm/hyprland.lua && -f $omarchy_etc/10-wayland.conf ]]; then
+  sudo cp -- "$omarchy_etc/10-wayland.conf" "$conf_d/10-wayland.conf"
+elif [[ -f $conf_d/10-wayland.conf && ! -f /usr/share/sddm/hyprland.lua ]]; then
+  sudo rm -f -- "$conf_d/10-wayland.conf"
+  printf 'Removed %s (missing /usr/share/sddm/hyprland.lua)\n' "$conf_d/10-wayland.conf"
+fi
+
+if [[ -f ${bg_file:-} ]]; then
+  # Always name it background.jpg for the QML Image source (JPEG or converted).
+  case "${bg_file,,}" in
+    *.jpg|*.jpeg)
+      sudo cp -- "$bg_file" "$theme_dst/background.jpg"
+      ;;
+    *)
+      if command -v magick >/dev/null; then
+        magick "$bg_file" "$theme_dst/background.jpg.tmp"
+        sudo mv -- "$theme_dst/background.jpg.tmp" "$theme_dst/background.jpg"
+      elif command -v convert >/dev/null; then
+        convert "$bg_file" "$theme_dst/background.jpg.tmp"
+        sudo mv -- "$theme_dst/background.jpg.tmp" "$theme_dst/background.jpg"
+      else
+        sudo cp -- "$bg_file" "$theme_dst/background.jpg"
+      fi
+      ;;
+  esac
+  printf 'SDDM wallpaper ← %s\n' "$bg_file"
+else
+  printf 'No Omarchy background to sync yet (%s)\n' "$bg_link" >&2
+fi
+
+printf 'Installed SDDM theme → %s (Current=omarchy)\n' "$theme_dst"

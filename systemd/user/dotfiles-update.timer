@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly check for pending package updates
+
+[Timer]
+OnCalendar=Sun 11:00
+# Fire after boot if the laptop was asleep or off at the scheduled time.
+Persistent=true
+# Avoid every machine hitting the mirrors at the same minute.
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target
