@@ -82,6 +82,97 @@
 (add-hook 'org-mode-hook #'auto-fill-mode)
 
 ;;; ==========================================
+;;; ORG — planner sort (`, S` / `SPC o S`)
+;;; ==========================================
+(defvar luciano/org--pending-sorts (make-hash-table :test 'equal)
+  "Buffer → heading position. Sort once point leaves that heading.")
+
+(defvar luciano/org--default-event-minutes 30
+  "Assumed length for timed events with no explicit end time.")
+
+(defvar luciano/org--task-gap-minutes 5
+  "Break between auto-planned tasks on today's schedule.")
+
+(defvar luciano/org--repacking-p nil
+  "Non-nil while bulk-rescheduling today's plan (suppresses recursive repacks).")
+
+(defvar-local luciano/org--accepted-duplicate-schedule nil
+  "Set after user accepts an overlapping schedule during capture.")
+
+(defun luciano/org-planner-file-p (&optional file)
+  "Non-nil if FILE is one of the planner category org files."
+  (let ((file (file-truename (or file (buffer-file-name) "")))
+        (dir (file-truename (expand-file-name org-directory))))
+    (member file
+            (mapcar (lambda (f) (expand-file-name f dir))
+                    '("personal.org" "arbor.org" "school.org" "canvas.org")))))
+
+(defun luciano/org--entry-closed-seconds ()
+  "Return CLOSED time for current entry as seconds, or 0 if unknown."
+  (let ((closed (org-entry-get nil "CLOSED" t)))
+    (cond
+     ((and closed (stringp closed))
+      (org-time-string-to-seconds closed))
+     (t
+      (save-excursion
+        (let ((end (save-excursion (org-end-of-subtree t t))))
+          (when (re-search-forward org-closed-time-regexp end t)
+            (org-time-string-to-seconds (match-string 1)))))))))
+
+(defun luciano/org--entry-sort-key ()
+  "Sort key: open tasks first (by keyword order), then done (newest closed first)."
+  (if (org-entry-is-done-p)
+      (cons 1 (- (or (luciano/org--entry-closed-seconds) 0)))
+    (cons 0 (- (length (member (org-get-todo-state) org-todo-keywords-1))))))
+
+(defun luciano/org--entry-sort-compare (a b)
+  (cond
+   ((< (car a) (car b)) t)
+   ((> (car a) (car b)) nil)
+   (t (< (cdr a) (cdr b)))))
+
+(defun luciano/org-sort-open-first ()
+  "Sort the whole file: open TODOs first, DONE/CANCELLED last.
+Among finished tasks, most recently closed sorts to the top of that section.
+Preserves the buffer's current fold state."
+  (interactive)
+  (require 'org)
+  (save-excursion
+    (goto-char (point-min))
+    (org-save-outline-visibility t
+      (org-sort-entries nil ?f #'luciano/org--entry-sort-key
+                        #'luciano/org--entry-sort-compare)))
+  (when (called-interactively-p 'interactive)
+    (message "Sorted file: open tasks first, DONE/CANCELLED last")))
+
+(defun luciano/org-mark-sort-after-todo-change ()
+  "Queue a deferred sort for this planner file (runs after you leave the heading)."
+  (when (luciano/org-planner-file-p)
+    (puthash (current-buffer)
+             (save-excursion (org-back-to-heading t) (point))
+             luciano/org--pending-sorts)))
+
+(defun luciano/org-maybe-sort-after-leaving-entry ()
+  "Sort any planner file whose edited heading you have moved away from."
+  (when (> (hash-table-count luciano/org--pending-sorts) 0)
+    (maphash
+     (lambda (buf pos)
+       (let ((still-in-subtree
+              (and (eq (current-buffer) buf)
+                   (derived-mode-p 'org-mode)
+                   (save-excursion
+                     (and (org-back-to-heading t)
+                          (= (point) pos))))))
+         (unless still-in-subtree
+           (remhash buf luciano/org--pending-sorts)
+           (when (buffer-live-p buf)
+             (with-current-buffer buf
+               (luciano/org-sort-open-first))))))
+     luciano/org--pending-sorts)))
+
+(add-hook 'post-command-hook #'luciano/org-maybe-sort-after-leaving-entry)
+
+;;; ==========================================
 ;;; ORG MODE — command center
 ;;; ==========================================
 (after! org
@@ -93,15 +184,20 @@
   ;; Empty :org-gcal: drawer is required: org-gcal-sync only pushes headlines
   ;; that already have that drawer. Capture file picks the Google calendar:
   ;;   t → Personal, a → Arbor Live, s → School. Canvas is pull-only.
+  ;; Capture without a time → optional duration/start prompts, then auto-slot.
+  ;; Template "T" still sets SCHEDULED manually (full control).
   (setq org-capture-templates
         '(("t" "Personal task" entry
            (file+headline "~/org/personal.org" "Tasks")
-           "* TODO %?\nSCHEDULED: %^T\n:org-gcal:\n:END:\n%i")
+           "* TODO %?\n:org-gcal:\n:END:\n%i")
           ("a" "Arbor inquiry / booking" entry
            (file+headline "~/org/arbor.org" "Inquiries")
-           "* TODO %?\nSCHEDULED: %^T\n:org-gcal:\n:END:\n%i")
+           "* TODO %?\n:org-gcal:\n:END:\n%i")
           ("s" "School task" entry
            (file+headline "~/org/school.org" "School Tasks")
+           "* TODO %?\n:org-gcal:\n:END:\n%i")
+          ("T" "Personal task (pick time)" entry
+           (file+headline "~/org/personal.org" "Tasks")
            "* TODO %?\nSCHEDULED: %^T\n:org-gcal:\n:END:\n%i")))
 
   (setq org-agenda-files '("~/org/personal.org"
@@ -252,6 +348,7 @@ Use when you forgot IN_PROGRESS or forgot to switch tasks."
             #'luciano/org-capture-maybe-add-manual-time)
 
   (add-hook 'org-after-todo-state-change-hook #'luciano/org-clock-on-state-change)
+  (add-hook 'org-after-todo-state-change-hook #'luciano/org-mark-sort-after-todo-change)
   (add-hook 'org-clock-out-hook
             (lambda ()
               (when (fboundp 'luciano/org-refresh-command-chart)
@@ -317,24 +414,7 @@ so old keybindings / timers do not invent optimistic hours."
     0)
 
   ;;; --- Open tasks first; DONE/CANCELLED last or folded ---------------
-  (defun luciano/org-category-file-p (&optional file)
-    "Non-nil if FILE is one of the planner category org files."
-    (let ((file (file-truename (or file (buffer-file-name) ""))))
-      (member file
-              (mapcar (lambda (f) (file-truename (expand-file-name f org-directory)))
-                      '("personal.org" "arbor.org" "school.org" "canvas.org")))))
-
-  (defun luciano/org-sort-open-first ()
-    "Sort entries: open TODOs first, DONE/CANCELLED last (all outline levels)."
-    (interactive)
-    (save-excursion
-      (goto-char (point-min))
-      ;; Point before first headline → sort whole file's top-level entries.
-      ;; RECURSIVE sorts nested parents (e.g. under * Inquiries) the same way.
-      ;; Sort siblings by TODO keyword order (done keywords after | sort last).
-      (org-sort-entries nil ?o))
-    (when (called-interactively-p 'interactive)
-      (message "Sorted: open tasks first, DONE/CANCELLED last")))
+  (defalias 'luciano/org-category-file-p #'luciano/org-planner-file-p)
 
   (defun luciano/org-fold-done-entries ()
     "Fold every DONE/CANCELLED subtree so open work stays visible."
@@ -1084,7 +1164,7 @@ Includes point-in-time stamps (no end) as start-only rows."
                           days (if (= days 1) "" "s"))
                   'face 'bold)
                  (propertize
-                  "Use this while picking a time for a new note.\n\n"
+                  "Capture: Enter=auto · duration 45m · start 2pm · both 2pm/1h\n\n"
                   'face 'shadow)))
            (cur-day nil))
       (if (null rows)
@@ -1138,11 +1218,408 @@ Includes point-in-time stamps (no end) as start-only rows."
 
   (add-hook 'org-capture-mode-hook #'luciano/org-show-schedule-sidecar)
   (add-hook 'org-capture-after-finalize-hook #'luciano/org-hide-schedule-sidecar)
+  (add-hook 'org-capture-mode-hook
+            (lambda () (setq luciano/org--accepted-duplicate-schedule nil)))
   ;; Refresh while answering %^T / schedule prompts (only during capture).
   (defun luciano/org-maybe-refresh-schedule-sidecar (&rest _)
     (when (bound-and-true-p org-capture-mode)
       (luciano/org-show-schedule-sidecar)))
   (advice-add 'org-read-date :before #'luciano/org-maybe-refresh-schedule-sidecar)
+
+  (defun luciano/org--timestamp-plist->range (plist)
+    "Return (START . END) encoded times from an org timestamp PLIST."
+    (when (plist-get plist :hour-start)
+      (let* ((hs (plist-get plist :hour-start))
+             (ms (or (plist-get plist :minute-start) 0))
+             (he (plist-get plist :hour-end))
+             (me (or (plist-get plist :minute-end) 0))
+             (day (plist-get plist :day-start))
+             (month (plist-get plist :month-start))
+             (year (plist-get plist :year-start))
+             (cs (encode-time 0 ms hs day month year))
+             (ce (if he
+                     (encode-time
+                      0 me he
+                      (or (plist-get plist :day-end) day)
+                      (or (plist-get plist :month-end) month)
+                      (or (plist-get plist :year-end) year))
+                   (time-add cs (seconds-to-time
+                                 (* 60 luciano/org--default-event-minutes))))))
+        (cons cs ce))))
+
+  (defun luciano/org--scheduled-range-at-point ()
+    "Return (START . END) for the SCHEDULED stamp on the current heading."
+    (let ((elem (org-element-at-point)))
+      (when-let ((sched (org-element-property :scheduled elem)))
+        (when (eq (car sched) 'timestamp)
+          (luciano/org--timestamp-plist->range (cadr sched))))))
+
+  (defconst luciano/org--day-planner-states
+    '("TODO" "IN_PROGRESS" "NEEDS_REPLY")
+    "Active states that stay on today's auto-planned timeline.")
+
+  (defun luciano/org-planner-writable-file-p (&optional file)
+    "Planner files that accept auto-scheduling and GCal push (not canvas)."
+    (let ((file (file-truename (or file (buffer-file-name) ""))))
+      (member file
+              (mapcar (lambda (f) (file-truename (expand-file-name f org-directory)))
+                      '("personal.org" "arbor.org" "school.org")))))
+
+  (defun luciano/org--time-max (a b)
+    (if (time-less-p a b) b a))
+
+  (defun luciano/org--round-time-up (time &optional minutes)
+    "Round TIME up to the next MINUTES boundary (default 15)."
+    (let* ((minutes (or minutes 15))
+           (dec (decode-time time))
+           (total (+ (* 60 (nth 2 dec)) (nth 1 dec)))
+           (rounded (* minutes (ceiling (/ (float total) minutes)))))
+      (encode-time 0 (% rounded 60) (/ rounded 60)
+                   (nth 3 dec) (nth 4 dec) (nth 5 dec) (nth 8 dec))))
+
+  (defun luciano/org--today-bounds ()
+    "Return (DAY-START . DAY-END) encoded times for today."
+    (let* ((dec (decode-time (current-time)))
+           (day-start (apply #'encode-time (append '(0 0 0) (nthcdr 3 dec)))))
+      (cons day-start (time-add day-start (* 24 60 60)))))
+
+  (defun luciano/org--format-scheduled-range-ts (start end)
+    "Org active timestamp range string for SCHEDULED."
+    (format "<%s-%s>"
+            (format-time-string "%Y-%m-%d %a %H:%M" start)
+            (format-time-string "%H:%M" end)))
+
+  (defun luciano/org--parse-start-time-string (input)
+    "Parse INPUT like 2pm, 14:30, or 2026-09-01 14:00 into an encoded time today."
+    (let ((s (string-trim (or input ""))))
+      (when (not (string-empty-p s))
+        (condition-case nil
+            (let* ((ts (if (string-match-p "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]" s)
+                           (concat "<" s ">")
+                         (concat "<" (format-time-string "%Y-%m-%d %a ") s ">")))
+                   (time (org-time-string-to-time ts)))
+              (when (and time (nth 2 (decode-time time)))
+                (luciano/org--round-time-up time 15)))
+          (error nil)))))
+
+  (defun luciano/org--parse-plan-hint-string (input)
+    "Parse capture hint INPUT into (:duration :start) plists values."
+    (let ((s (string-trim (or input ""))))
+      (when (not (string-empty-p s))
+        (if (string-match "/" s)
+            (let* ((idx (match-beginning 0))
+                   (left (string-trim (substring s 0 idx)))
+                   (right (string-trim (substring s (1+ idx)))))
+              (list :start (luciano/org--parse-start-time-string left)
+                    :duration (luciano/org--parse-duration-minutes right)))
+          (or (when-let ((mins (luciano/org--parse-duration-minutes s)))
+                (list :duration mins))
+              (when-let ((start (luciano/org--parse-start-time-string s)))
+                (list :start start)))))))
+
+  (defun luciano/org--read-plan-options (&optional force)
+    "Read optional duration and/or start (empty = auto). FORCE prompts outside capture."
+    (when (or force org-capture-mode)
+      (let ((one (read-string
+                  "Plan [Enter=auto | 45m | 2pm | 2pm/1h] (or separate prompts next): ")))
+        (if (not (string-empty-p one))
+            (luciano/org--parse-plan-hint-string one)
+          (let ((dur-str (read-string "Duration (45m, 1h — Enter=30m): "))
+                (start-str (read-string "Start (2pm, 14:30 — Enter=next slot): ")))
+            (list :duration (or (luciano/org--parse-duration-minutes dur-str)
+                                (unless (string-empty-p dur-str) luciano/org--default-event-minutes))
+                  :start (luciano/org--parse-start-time-string start-str)))))))
+
+  (defalias 'luciano/org--read-capture-plan-options #'luciano/org--read-plan-options)
+
+  (defun luciano/org--range-overlaps-blocks-p (start end blocks &optional exclude-marker)
+    (cl-some
+     (lambda (block)
+       (and (or (null exclude-marker)
+                (not (equal (plist-get block :marker) exclude-marker)))
+            (luciano/org--time-ranges-overlap-p
+             start end (plist-get block :start) (plist-get block :end))))
+     blocks))
+
+  (defun luciano/org--find-plan-slot (&optional duration-minutes from-time exclude-marker)
+    "Return (:start :end) for DURATION, optionally anchored at FROM-TIME."
+    (let* ((dur (or duration-minutes luciano/org--default-event-minutes))
+           (gap-secs (* 60 luciano/org--task-gap-minutes))
+           (bounds (luciano/org--today-bounds))
+           (blocks (cl-remove-if
+                    (lambda (b)
+                      (and exclude-marker (equal (plist-get b :marker) exclude-marker)))
+                    (luciano/org--collect-day-plan-blocks (car bounds) (cdr bounds))))
+           (cursor (luciano/org--round-time-up (or from-time (current-time)) 15)))
+      (setq cursor (luciano/org--time-max cursor (car bounds)))
+      (when from-time
+        (let ((end (time-add cursor (seconds-to-time (* 60 dur)))))
+          (unless (luciano/org--range-overlaps-blocks-p cursor end blocks exclude-marker)
+            (cl-return-from luciano/org--find-plan-slot
+              (list :start cursor :end end)))))
+      (if (null blocks)
+          (list :start cursor
+                :end (time-add cursor (seconds-to-time (* 60 dur))))
+        (catch 'slot
+          (dolist (block blocks)
+            (let ((bstart (plist-get block :start))
+                  (bend (plist-get block :end)))
+              (when (time-less-p cursor bstart)
+                (let ((candidate-end (time-add cursor (seconds-to-time (* 60 dur)))))
+                  (when (time-less-p candidate-end bstart)
+                    (throw 'slot (list :start cursor :end candidate-end)))))
+              (setq cursor (luciano/org--time-max
+                            cursor
+                            (time-add bend (seconds-to-time gap-secs))))))
+          (list :start cursor
+                :end (time-add cursor (seconds-to-time (* 60 dur))))))))
+
+  (defun luciano/org--next-open-slot (&optional duration-minutes exclude-marker)
+    "Next gap on today's plan for a DURATION-MINUTES block (default 30)."
+    (luciano/org--find-plan-slot duration-minutes nil exclude-marker))
+
+  (defun luciano/org--entry-plan-duration-minutes ()
+    "Minutes blocked for the current heading (property, range, or default)."
+    (or (when-let ((p (org-entry-get nil "DURATION")))
+          (let ((n (string-to-number p)))
+            (when (> n 0) n)))
+        (if-let ((range (luciano/org--scheduled-range-at-point)))
+            (max 15 (round (/ (float-time (time-subtract (cdr range) (car range))) 60)))
+          luciano/org--default-event-minutes)))
+
+  (defun luciano/org--collect-day-plan-blocks (start end)
+    "Timed plan blocks in [START,END) as plists (:marker :start :end :duration :state :title)."
+    (let (blocks)
+      (dolist (file '("personal.org" "arbor.org" "school.org" "canvas.org"))
+        (let ((abs (expand-file-name file org-directory)))
+          (when (file-readable-p abs)
+            (with-current-buffer (find-file-noselect abs)
+              (org-with-wide-buffer
+               (org-map-entries
+                (lambda ()
+                  (let ((state (org-get-todo-state)))
+                    (when (and state (member state luciano/org--day-planner-states))
+                      (when-let ((range (luciano/org--scheduled-range-at-point)))
+                        (let ((cs (car range)) (ce (cdr range)))
+                          (when (and (time-less-p cs end) (time-less-p start ce))
+                            (push (list :marker (copy-marker (point-marker))
+                                        :start cs
+                                        :end ce
+                                        :duration (luciano/org--entry-plan-duration-minutes)
+                                        :state state
+                                        :title (org-get-heading t t t t)
+                                        :file abs)
+                                  blocks)))))))
+                nil 'file))))))
+      (cl-sort blocks #'< :key (lambda (b) (float-time (plist-get b :start))))))
+
+  (defun luciano/org--set-scheduled-range (start end &optional suppress-gcal)
+    "Write SCHEDULED range START–END on the current heading."
+    (org-back-to-heading t)
+    (let ((ts (luciano/org--format-scheduled-range-ts start end))
+          (luciano/org-gcal--suppress-schedule-post
+           (or suppress-gcal luciano/org-gcal--suppress-schedule-post)))
+      (when (org-get-scheduled-time (point))
+        (org-schedule t))
+      (org-schedule nil ts)))
+
+  (defun luciano/org--set-scheduled-range-at-marker (marker start end &optional suppress-gcal)
+    (when (and (markerp marker) (marker-buffer marker))
+      (with-current-buffer (marker-buffer marker)
+        (org-with-wide-buffer
+         (goto-char marker)
+         (luciano/org--set-scheduled-range start end suppress-gcal)))))
+
+  (defun luciano/org--clear-scheduled-at-point ()
+    (when (org-get-scheduled-time (point))
+      (org-schedule t)))
+
+  (defun luciano/org--schedule-heading-with-options (&optional opts message-p)
+    "Apply plan OPTIONS plist (:duration :start) to the heading at point."
+    (let* ((dur (or (plist-get opts :duration) luciano/org--default-event-minutes))
+           (slot (luciano/org--find-plan-slot dur (plist-get opts :start)))
+           (start (plist-get slot :start))
+           (end (plist-get slot :end)))
+      (when (org-get-scheduled-time (point))
+        (org-schedule t))
+      (when (and (plist-get opts :duration)
+                 (/= dur luciano/org--default-event-minutes))
+        (org-entry-put (point) "DURATION" (format "%d" dur)))
+      (luciano/org--set-scheduled-range start end)
+      (when message-p
+        (message "Planned %s–%s (%d min)"
+                 (format-time-string "%H:%M" start)
+                 (format-time-string "%H:%M" end)
+                 dur))))
+
+  (defun luciano/org-plan-at-point ()
+    "Slot or re-slot the heading at point (optional duration/start prompts)."
+    (interactive)
+    (unless (org-at-heading-p)
+      (user-error "Point must be on an Org heading"))
+    (unless (luciano/org-planner-writable-file-p)
+      (user-error "Auto-plan only applies to personal/arbor/school files"))
+    (let ((opts (luciano/org--read-plan-options t)))
+      (luciano/org--schedule-heading-with-options opts t)))
+
+  (defun luciano/org--auto-schedule-heading-at-point (&optional message-p opts)
+    "Slot the current heading into today's plan (OPTS or next open block)."
+    (unless (org-get-scheduled-time (point))
+      (luciano/org--schedule-heading-with-options
+       (or opts (list :duration (luciano/org--default-event-minutes)))
+       message-p)))
+
+  (defun luciano/org-repack-today ()
+    "Re-pack today's remaining planned tasks from now (+ break gap)."
+    (interactive)
+    (unless (luciano/org-planner-writable-file-p)
+      (user-error "Repack only applies to personal/arbor/school planner files"))
+    (luciano/org--repack-day-from
+     (time-add (current-time)
+               (seconds-to-time (* 60 luciano/org--task-gap-minutes))))
+    (message "Repacked today's plan (%d min tasks, %d min gaps)"
+             luciano/org--default-event-minutes
+             luciano/org--task-gap-minutes))
+
+  (defun luciano/org--repack-day-from (from-time &optional skip-marker)
+    "Slide today's active plan blocks to start at FROM-TIME, preserving durations."
+    (let* ((bounds (luciano/org--today-bounds))
+           (gap-secs (* 60 luciano/org--task-gap-minutes))
+           (entries
+            (cl-sort
+             (cl-remove-if
+              (lambda (e)
+                (or (and skip-marker (equal (plist-get e :marker) skip-marker))
+                    (time-less-p (plist-get e :end) from-time)))
+              (luciano/org--collect-day-plan-blocks (car bounds) (cdr bounds)))
+             #'< :key (lambda (e) (float-time (plist-get e :start)))))
+           (slot from-time)
+           (to-push nil))
+      (when entries
+        (setq luciano/org--repacking-p t)
+        (unwind-protect
+            (dolist (entry entries)
+              (let* ((dur (plist-get entry :duration))
+                     (end (time-add slot (seconds-to-time (* 60 dur)))))
+                (luciano/org--set-scheduled-range-at-marker
+                 (plist-get entry :marker) slot end t)
+                (push (plist-get entry :marker) to-push)
+                (setq slot (time-add end (seconds-to-time gap-secs)))))
+          (setq luciano/org--repacking-p nil)
+          (dolist (hd (nreverse to-push))
+            (when (fboundp 'luciano/org-gcal-push-heading-at-marker)
+              (luciano/org-gcal-push-heading-at-marker hd)))))))
+
+  (defun luciano/org-day-planner-on-state-change ()
+    "Drop parked tasks from the timeline; repack when a block ends early."
+    (when (and (luciano/org-planner-writable-file-p)
+               (not luciano/org--repacking-p))
+      (save-excursion
+        (org-back-to-heading t)
+        (let ((here (copy-marker (point-marker))))
+          (cond
+           ((member org-state '("WAITING_REPLY" "CANCELLED"))
+            (luciano/org--clear-scheduled-at-point)
+            (luciano/org--repack-day-from
+             (time-add (current-time)
+                       (seconds-to-time (* 60 luciano/org--task-gap-minutes)))
+             here))
+           ((and (member org-last-state '("IN_PROGRESS"))
+                 (member org-state '("DONE" "TODO" "NEEDS_REPLY")))
+            (luciano/org--repack-day-from
+             (time-add (current-time)
+                       (seconds-to-time (* 60 luciano/org--task-gap-minutes)))
+             here)))))))
+
+  (defun luciano/org-capture-auto-schedule ()
+    "During capture, prompt for optional duration/start, then auto-slot."
+    (when (and (org-at-heading-p)
+               (luciano/org-planner-writable-file-p)
+               (not (org-get-scheduled-time (point)))
+               (member (org-get-todo-state) luciano/org--day-planner-states))
+      (let ((opts (luciano/org--read-plan-options)))
+        (luciano/org--schedule-heading-with-options opts t))))
+
+  (add-hook 'org-after-todo-state-change-hook #'luciano/org-day-planner-on-state-change)
+  (add-hook 'org-capture-before-finalize-hook #'luciano/org-capture-auto-schedule 'append)
+
+  (defun luciano/org--parse-read-date-range (ts-string)
+    "Parse a timed org-read-date result into (START . END)."
+    (when (and ts-string (stringp ts-string) (string-match ":" ts-string))
+      (let* ((inner (replace-regexp-in-string "^<\\|\\>$" "" ts-string))
+             (range-re
+              "\\`\\([^<]+? \\([0-9][0-9]:[0-9][0-9]\\)\\)-\\([0-9][0-9]:[0-9][0-9]\\)\\'"))
+        (if (string-match range-re inner)
+            (let* ((date (match-string 1 inner))
+                   (start (org-time-string-to-time (concat date " " (match-string 2 inner))))
+                   (end (org-time-string-to-time (concat date " " (match-string 3 inner)))))
+              (cons start end))
+          (let ((start (org-time-string-to-time inner)))
+            (cons start (time-add start (seconds-to-time
+                                        (* 60 luciano/org--default-event-minutes))))))))
+
+  (defun luciano/org--time-ranges-overlap-p (s1 e1 s2 e2)
+    (and (time-less-p s1 e2) (time-less-p s2 e1)))
+
+  (defun luciano/org--find-overlapping-events (start end &optional skip-pos)
+    "Return alist of overlapping open timed events across planner files."
+    (let (hits)
+      (dolist (file '("personal.org" "arbor.org" "school.org" "canvas.org"))
+        (let ((abs (expand-file-name file org-directory)))
+          (when (file-readable-p abs)
+            (with-current-buffer (find-file-noselect abs)
+              (org-with-wide-buffer
+               (org-map-entries
+                (lambda ()
+                  (when (and (or (null skip-pos) (/= (point) skip-pos))
+                             (not (org-entry-is-done-p)))
+                    (let ((range (luciano/org--scheduled-range-at-point)))
+                      (when (and range
+                                 (luciano/org--time-ranges-overlap-p
+                                  start end (car range) (cdr range)))
+                        (push (format "%s (%s)"
+                                      (org-get-heading t t t t)
+                                      (file-name-nondirectory abs))
+                              hits)))))
+                nil 'file)))))
+      (nreverse hits)))
+
+  (defun luciano/org--confirm-overlapping-schedule (start end &optional skip-pos)
+    "Ask once before creating an overlapping timed event. Return non-nil to proceed."
+    (let ((hits (luciano/org--find-overlapping-events start end skip-pos)))
+      (if (null hits)
+          t
+        (y-or-n-p
+         (format "Overlaps existing event(s): %s — add anyway?"
+                 (mapconcat #'identity (seq-take hits 3) "; "))))))
+
+  (defun luciano/org-read-date--warn-duplicate-a (result)
+    "During capture, warn before accepting a time that overlaps existing events."
+    (when (and result (stringp result)
+               org-capture-mode
+               (string-match ":" result))
+      (let ((range (luciano/org--parse-read-date-range result)))
+        (when range
+          (setq luciano/org--accepted-duplicate-schedule
+                (luciano/org--confirm-overlapping-schedule
+                 (car range) (cdr range)))
+          (unless luciano/org--accepted-duplicate-schedule
+            (user-error "Capture cancelled — overlapping schedule")))))
+    result)
+
+  (defun luciano/org-capture-warn-duplicate-schedule ()
+    "Final capture check before writing a possibly overlapping timed event."
+    (when (org-at-heading-p)
+      (let ((range (luciano/org--scheduled-range-at-point)))
+        (when (and range (not luciano/org--accepted-duplicate-schedule))
+          (unless (luciano/org--confirm-overlapping-schedule
+                    (car range) (cdr range) (point))
+            (setq org-note-abort t)
+            (user-error "Capture cancelled — overlapping schedule"))
+          (setq luciano/org--accepted-duplicate-schedule t)))))
+
+  (advice-add 'org-read-date :filter-return #'luciano/org-read-date--warn-duplicate-a)
+  (add-hook 'org-capture-before-finalize-hook #'luciano/org-capture-warn-duplicate-schedule)
 
   (defun luciano/org--bar (mins max-mins width face &optional pad)
     "Propertized ASCII bar for MINS relative to MAX-MINS."
@@ -1568,9 +2045,23 @@ the line at point. Saves Org files and pushes writable calendars to GCal."
 
   (map! :map org-mode-map
         :localleader
-        :desc "Sort open tasks first" "S" #'luciano/org-sort-open-first
+        :desc "Sort entire file (open first)" "S" #'luciano/org-sort-open-first
         :desc "Fold DONE/CANCELLED" "F" #'luciano/org-fold-done-entries
+        :desc "Repack today's plan" "P" #'luciano/org-repack-today
+        :desc "Plan/slot at point" "L" #'luciano/org-plan-at-point
         :desc "Add manual CLOCK time" "+" #'luciano/org-add-manual-time)
+  ;; Shadow Doom's `, s S' (`org-sort') on planner files only — use :prefix "s"
+  ;; without a label so we do not wipe the rest of the subtree prefix map.
+  (defun luciano/org-sort-open-first-or-dispatch ()
+    "On planner files, sort the whole file; elsewhere delegate to `org-sort'."
+    (interactive)
+    (if (luciano/org-planner-file-p)
+        (luciano/org-sort-open-first)
+      (call-interactively #'org-sort)))
+  (map! :map org-mode-map
+        :localleader
+        :prefix "s"
+        :desc "Sort entire planner file" "S" #'luciano/org-sort-open-first-or-dispatch)
   (map! :leader
         ;; Capital D — lowercase d is Doom "Start a debugger" under SPC o.
         :desc "Command center (agenda + chart)" "o D" #'luciano/org-agenda-command-center
@@ -1580,8 +2071,12 @@ the line at point. Saves Org files and pushes writable calendars to GCal."
         :desc "Open vterm here" "o T" #'+vterm/here
         :desc "What's booked" "o B" #'luciano/org-show-schedule-sidecar
         :desc "Arbor timecard" "o W" #'luciano/org-arbor-timecard
+        :desc "Sort entire planner file" "o S" #'luciano/org-sort-open-first
+        :desc "Repack today's plan" "o P" #'luciano/org-repack-today
+        :desc "Plan/slot heading at point" "o L" #'luciano/org-plan-at-point
         :desc "Add manual CLOCK time" "o +" #'luciano/org-add-manual-time
-        :desc "Capture task + manual time" "o M" #'luciano/org-capture-manual-time))
+        :desc "Capture task + manual time" "o M" #'luciano/org-capture-manual-time))))
+
 ;;; ==========================================
 ;;; GOOGLE CALENDAR (ORG-GCAL)
 ;;; ==========================================
@@ -2085,7 +2580,8 @@ Skips entirely when tokens are locked — opening agenda must never hang on pine
         org-gcal-down-days 60
         org-gcal-notify-p nil
         ;; Never ask "Push event to Google Calendar?" on post.
-        org-gcal-managed-post-at-point-update-existing 'always-push)
+        org-gcal-managed-post-at-point-update-existing 'always-push
+        org-gcal-event-default-duration 30)
 
   ;; Stock org-gcal adds its own capture poster at load time. That + ours
   ;; created TWO Google events per capture (then fetch reimported the twin).
@@ -2408,11 +2904,13 @@ Use SPC q q (or :qa) to leave Emacs."
   (luciano/goto-dashboard)
   (run-at-time 0 nil #'luciano/goto-dashboard))
 
+;; Use :prefix "b" without a which-key label — ("b" . "buffer") would wipe
+;; Doom's default SPC b bindings (B, b, i, …).
 (map! :leader
-      (:prefix ("b" . "buffer")
-       :desc "Kill buffer (ask save)" "k" #'luciano/kill-buffer-ask-save
-       :desc "Kill buffer (ask save)" "d" #'luciano/kill-buffer-ask-save
-       :desc "Kill all → dashboard" "K" #'luciano/kill-all-buffers-ask-save))
+      :prefix "b"
+      :desc "Kill buffer (ask save)" "k" #'luciano/kill-buffer-ask-save
+      :desc "Kill buffer (ask save)" "d" #'luciano/kill-buffer-ask-save
+      :desc "Kill all → dashboard" "K" #'luciano/kill-all-buffers-ask-save)
 
 ;;; ==========================================
 ;;; WORKSPACES — permanent SPC TAB TAB (modeline center)
