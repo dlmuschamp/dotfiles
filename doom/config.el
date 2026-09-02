@@ -821,6 +821,15 @@ Never includes Personal/School/Canvas. Never uses allotted calendar length."
        (propertize "c in chart buffer copies this table.\n\n" 'face 'shadow)
        (luciano/org--timesheet-table-body items))))
 
+  (defun luciano/org--bar (mins max-mins width face &optional pad)
+    "Propertized ASCII bar for MINS relative to MAX-MINS."
+    (let* ((max-mins (max (float max-mins) 1.0))
+           (filled (round (* width (/ mins max-mins))))
+           (filled (min width (max (if (> mins 0) 1 0) filled)))
+           (bar (concat (make-string filled ?█)
+                        (if pad (make-string (- width filled) ?·) ""))))
+      (propertize bar 'face face)))
+
   (defun luciano/org--format-weekly-dashboard (&optional week-shift mode)
     "Return a string: ASCII stacked bars by day + category totals.
 MODE is `actual' (CLOCK / IN_PROGRESS time), `planned' (calendar blocks),
@@ -1047,11 +1056,13 @@ In the chart buffer press `t' to cycle actual → planned → both."
       buf))
 
   (defun luciano/org-command-center-split ()
-    "Split frame: agenda (left) + colored bar chart / timesheet (right)."
-    (split-window-right)
-    (other-window 1)
-    (switch-to-buffer (luciano/org--weekly-dashboard-buffer 0))
-    (other-window 1))
+    "Split frame: agenda (left) + bar chart / timesheet (right, ~58% width)."
+    (let ((chart-cols (max 68 (round (* 0.58 (frame-width)))))
+          (chart (luciano/org--weekly-dashboard-buffer 0)))
+      (split-window-right chart-cols)
+      (other-window 1)
+      (switch-to-buffer chart)
+      (other-window 1)))
 
   (defun luciano/org-agenda-command-center (&optional _match)
     "Command center: 10-day agenda (left) + actual/planned chart (right)."
@@ -1087,6 +1098,93 @@ In the chart buffer press `t' to cycle actual → planned → both."
       (luciano/org--ensure-command-chart-window)
       (luciano/org-refresh-command-chart)))
   (add-hook 'org-agenda-finalize-hook #'luciano/org-agenda-maybe-restore-chart)
+
+  ;; Install agenda keys early — day-planner code below can abort the rest of
+  ;; `after! org`; command center must survive that (SPC o A d / SPC o D).
+  (defun luciano/org-setup-agenda-commands ()
+    "Install custom Org agenda views (command center, category weeks, etc.)."
+    (setq org-agenda-custom-commands
+        `(("d" "Command center (10 days + time)" luciano/org-agenda-command-center)
+          ("d!" nil
+           ((agenda ""
+                    ((org-agenda-span 10)
+                     (org-agenda-start-on-weekday nil)
+                     (org-agenda-start-day "-1d")
+                     (org-agenda-overriding-header "Command center · 10 days")
+                     (org-agenda-skip-function
+                      '(org-agenda-skip-entry-if 'todo '("WAITING_REPLY")))))
+            (todo "NEEDS_REPLY"
+                  ((org-agenda-overriding-header "Needs reply")))
+            (todo ,luciano/org-parked-todo-match
+                  ((org-agenda-overriding-header "Waiting reply (parked)"))))
+           ((org-agenda-window-setup 'current-window)))
+          ("D" "Today only"
+           ((agenda ""
+                    ((org-agenda-span 'day)
+                     (org-agenda-overriding-header "Today")
+                     (org-agenda-skip-function
+                      '(org-agenda-skip-entry-if 'todo '("WAITING_REPLY")))))
+            (todo "NEEDS_REPLY"
+                  ((org-agenda-overriding-header "Needs reply")))
+            (todo ,luciano/org-parked-todo-match
+                  ((org-agenda-overriding-header "Waiting reply (parked)")))
+            (todo "TODO"
+                  ((org-agenda-overriding-header "Backlog (TODO)")))))
+          ("r" "Arbor"
+           ((agenda ""
+                    ((org-agenda-files '("~/org/arbor.org"))
+                     (org-agenda-span 7)
+                     (org-agenda-overriding-header "Arbor week")))
+            (todo ,luciano/org-open-todo-match
+                  ((org-agenda-files '("~/org/arbor.org"))
+                   (org-agenda-overriding-header "Arbor open tasks")))))
+          ("p" "Personal"
+           ((agenda ""
+                    ((org-agenda-files '("~/org/personal.org"))
+                     (org-agenda-span 7)
+                     (org-agenda-overriding-header "Personal week")))
+            (todo ,luciano/org-open-todo-match
+                  ((org-agenda-files '("~/org/personal.org"))
+                   (org-agenda-overriding-header "Personal open tasks")))))
+          ("s" "School"
+           ((agenda ""
+                    ((org-agenda-files '("~/org/school.org" "~/org/canvas.org"))
+                     (org-agenda-span 7)
+                     (org-agenda-overriding-header "School + Canvas week")))
+            (todo ,luciano/org-open-todo-match
+                  ((org-agenda-files '("~/org/school.org" "~/org/canvas.org"))
+                   (org-agenda-overriding-header "School + Canvas open")))))
+          ("c" "Canvas (imported, pull-only)"
+           ((agenda ""
+                    ((org-agenda-files '("~/org/canvas.org"))
+                     (org-agenda-span 14)
+                     (org-agenda-overriding-header "Canvas import")))
+            (todo ,luciano/org-open-todo-match
+                  ((org-agenda-files '("~/org/canvas.org"))
+                   (org-agenda-overriding-header "Canvas open")))
+            (todo "DONE|CANCELLED"
+                  ((org-agenda-files '("~/org/canvas.org"))
+                   (org-agenda-overriding-header "Canvas finished")))))
+          ("t" "All open TODOs" todo ,luciano/org-open-todo-match
+           ((org-agenda-overriding-header "Everything open")))
+          ("R" "Arbor week + clock report (timesheet)"
+           ((agenda ""
+                    ((org-agenda-files '("~/org/arbor.org"))
+                     (org-agenda-span 'week)
+                     (org-agenda-start-with-clockreport-mode t)
+                     (org-agenda-clockreport-parameter-plist
+                      '(:link t :maxlevel 3 :fileskip0 t :compact t
+                        :narrow 60 :formula %))
+                     (org-agenda-overriding-header "Arbor week + time clocked")))))
+          ("W" "Arbor hours per task (timecard)" luciano/org-agenda-arbor-timecard)
+          ("T" "Weekly time chart (CLOCK)" luciano/org-agenda-weekly-time-chart))))
+
+  (luciano/org-setup-agenda-commands)
+
+  (map! :leader
+        ;; SPC o A then d — agenda dispatcher. SPC o D — direct (d is Doom debugger).
+        :desc "Command center (agenda + chart)" "o D" #'luciano/org-agenda-command-center
+        :desc "Command center (agenda + chart)" "o a d" #'luciano/org-agenda-command-center)
 
   ;;; --- Schedule sidecar (see what's booked while capturing) ------------
   (defun luciano/org--hhmm (hour minute)
@@ -1863,90 +1961,6 @@ Only arbor.org — never Personal/School/Canvas. One row per clock-in."
     "Agenda dispatcher entry for Arbor weekly hours."
     (luciano/org-arbor-timecard 0))
 
-  ;; SPC o D — command center (SPC o d is Doom's debugger). SPC o A then d — same.
-  (defun luciano/org-setup-agenda-commands ()
-    "Install custom Org agenda views (command center, category weeks, etc.)."
-    (setq org-agenda-custom-commands
-        `(("d" "Command center (10 days + time)" luciano/org-agenda-command-center)
-          ;; Internal left-pane series used by command center (not listed in dispatcher
-          ;; if we hide it — still selectable as d!). Keep visible description short.
-          ("d!" nil
-           ((agenda ""
-                    ((org-agenda-span 10)
-                     (org-agenda-start-on-weekday nil)
-                     (org-agenda-start-day "-1d")
-                     (org-agenda-overriding-header "Command center · 10 days")
-                     ;; WAITING_REPLY parked below; NEEDS_REPLY has its own section.
-                     (org-agenda-skip-function
-                      '(org-agenda-skip-entry-if 'todo '("WAITING_REPLY")))))
-            (todo "NEEDS_REPLY"
-                  ((org-agenda-overriding-header "Needs reply")))
-            (todo ,luciano/org-parked-todo-match
-                  ((org-agenda-overriding-header "Waiting reply (parked)"))))
-           ((org-agenda-window-setup 'current-window)))
-          ("D" "Today only"
-           ((agenda ""
-                    ((org-agenda-span 'day)
-                     (org-agenda-overriding-header "Today")
-                     (org-agenda-skip-function
-                      '(org-agenda-skip-entry-if 'todo '("WAITING_REPLY")))))
-            (todo "NEEDS_REPLY"
-                  ((org-agenda-overriding-header "Needs reply")))
-            (todo ,luciano/org-parked-todo-match
-                  ((org-agenda-overriding-header "Waiting reply (parked)")))
-            (todo "TODO"
-                  ((org-agenda-overriding-header "Backlog (TODO)")))))
-          ("r" "Arbor"
-           ((agenda ""
-                    ((org-agenda-files '("~/org/arbor.org"))
-                     (org-agenda-span 7)
-                     (org-agenda-overriding-header "Arbor week")))
-            (todo ,luciano/org-open-todo-match
-                  ((org-agenda-files '("~/org/arbor.org"))
-                   (org-agenda-overriding-header "Arbor open tasks")))))
-          ("p" "Personal"
-           ((agenda ""
-                    ((org-agenda-files '("~/org/personal.org"))
-                     (org-agenda-span 7)
-                     (org-agenda-overriding-header "Personal week")))
-            (todo ,luciano/org-open-todo-match
-                  ((org-agenda-files '("~/org/personal.org"))
-                   (org-agenda-overriding-header "Personal open tasks")))))
-          ("s" "School"
-           ((agenda ""
-                    ((org-agenda-files '("~/org/school.org" "~/org/canvas.org"))
-                     (org-agenda-span 7)
-                     (org-agenda-overriding-header "School + Canvas week")))
-            (todo ,luciano/org-open-todo-match
-                  ((org-agenda-files '("~/org/school.org" "~/org/canvas.org"))
-                   (org-agenda-overriding-header "School + Canvas open")))))
-          ("c" "Canvas (imported, pull-only)"
-           ((agenda ""
-                    ((org-agenda-files '("~/org/canvas.org"))
-                     (org-agenda-span 14)
-                     (org-agenda-overriding-header "Canvas import")))
-            (todo ,luciano/org-open-todo-match
-                  ((org-agenda-files '("~/org/canvas.org"))
-                   (org-agenda-overriding-header "Canvas open")))
-            (todo "DONE|CANCELLED"
-                  ((org-agenda-files '("~/org/canvas.org"))
-                   (org-agenda-overriding-header "Canvas finished")))))
-          ("t" "All open TODOs" todo ,luciano/org-open-todo-match
-           ((org-agenda-overriding-header "Everything open")))
-          ("A" "Arbor week + clock report (timesheet)"
-           ((agenda ""
-                    ((org-agenda-files '("~/org/arbor.org"))
-                     (org-agenda-span 'week)
-                     (org-agenda-start-with-clockreport-mode t)
-                     (org-agenda-clockreport-parameter-plist
-                      '(:link t :maxlevel 3 :fileskip0 t :compact t
-                        :narrow 60 :formula %))
-                     (org-agenda-overriding-header "Arbor week + time clocked")))))
-          ("W" "Arbor hours per task (timecard)" luciano/org-agenda-arbor-timecard)
-          ("T" "Weekly time chart (CLOCK)" luciano/org-agenda-weekly-time-chart))))
-
-  (luciano/org-setup-agenda-commands)
-
   (defun luciano/org--slide-heading-minutes (hdmarker minutes)
     "Shift SCHEDULED (else DEADLINE / first stamp) at HDMARKER by MINUTES.
 Preserves HH:MM-HH:MM duration. Return non-nil on success."
@@ -2064,7 +2078,6 @@ the line at point. Saves Org files and pushes writable calendars to GCal."
         :desc "Sort entire planner file" "S" #'luciano/org-sort-open-first-or-dispatch)
   (map! :leader
         ;; Capital D — lowercase d is Doom "Start a debugger" under SPC o.
-        :desc "Command center (agenda + chart)" "o D" #'luciano/org-agenda-command-center
         :desc "Command bar chart" "o C" #'luciano/org-show-command-chart
         ;; T stays with Doom's `+vterm/here' so a terminal can own a pane.
         :desc "CLOCK time chart" "o H" #'luciano/org-weekly-time-chart
@@ -2838,7 +2851,7 @@ Use SPC q q (or :qa) to leave Emacs."
 (advice-add 'evil-save-and-close :override #'luciano/evil-save-and-close)
 
 (after! org-agenda
-  ;; Re-apply after org-agenda loads (guards against a partial org init).
+  ;; Re-apply after org-agenda loads (guards against a partial `after! org`).
   (when (fboundp 'luciano/org-setup-agenda-commands)
     (luciano/org-setup-agenda-commands))
   ;; Agenda is not sticky: q should destroy it, not leave it buried.

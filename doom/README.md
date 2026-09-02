@@ -92,6 +92,29 @@ Hit `Enter` on the one-liner to get separate **duration** and **start** prompts.
 If a requested start is busy, the next gap from that time is used. Overlaps
 with existing events prompt before confirm.
 
+### Command center
+
+Split view: **10-day agenda** (left) + **weekly time chart** (right, ~58% of
+frame width). `NEEDS_REPLY` has its own section; `WAITING_REPLY` is parked at
+the bottom.
+
+| Key | Action |
+|-----|--------|
+| `SPC o A` then `d` | Command center (agenda dispatcher — preferred) |
+| `SPC o D` | Command center (direct; lowercase `d` is Doom's debugger) |
+| `SPC o a d` | Command center (under `SPC o a` org submenu) |
+| `SPC o C` | Bar chart only (side window) |
+
+In the chart pane (`*Org Command Chart*`):
+
+| Key | Action |
+|-----|--------|
+| `t` | Cycle actual → planned → both |
+| `a` / `Tab` | Back to agenda pane |
+
+Agenda setup registers early in `config.el` so command center survives even if
+later day-planner init fails. `after! org-agenda` re-applies it on load.
+
 ### Keybindings
 
 Local leader is **`,`** (vim-style).
@@ -103,8 +126,6 @@ Local leader is **`,`** (vim-style).
 | `, P` | Repack today's remaining plan from now |
 | `, L` | Plan / re-slot heading at point (same prompts as capture) |
 | `, +` | Add manual `CLOCK` time at heading |
-| `SPC o D` | Command center (agenda + chart) |
-| `SPC o C` | Command bar chart |
 | `SPC o H` | Weekly `CLOCK` time chart |
 | `SPC o B` | Schedule sidecar (what's booked) |
 | `SPC o W` | Arbor timecard |
@@ -118,6 +139,10 @@ Buffer menu (`SPC b …`) uses Doom defaults again (`SPC b B` = switch buffer).
 Custom kill-with-save: `SPC b k` / `SPC b d`, kill all → dashboard: `SPC b K`.
 
 ### Agenda
+
+Open the dispatcher with `SPC o A`. Other custom views include `r` Arbor,
+`p` Personal, `s` School, `R` Arbor week + clock report (was `A`), `W`
+timecard, `T` weekly chart.
 
 - `M-<up>` / `M-<down>` in agenda: slide events ±15 min (GCal push queued).
 - `q` quits agenda and command-center chart.
