@@ -8,8 +8,8 @@ by `./bootstrap`, updated with `doom upgrade`) and is not in this repo.
 
 | Path | Role |
 |------|------|
-| `init.el` | Enabled Doom modules (`doom!` block) |
-| `config.el` | Personal settings (Org agenda, GCal hooks, Typst, …) |
+| `init.el` | Enabled Doom modules (`doom!` block); `doom-localleader-key` is `,` |
+| `config.el` | Personal settings (Org agenda, day planner, GCal hooks, Typst, …) |
 | `org-pdf.el` | Org → PDF export classes (`spec`, `essay`) |
 | `packages.el` | Extra packages (`org-gcal`, `ox-typst`, …) |
 | `org-gcal-secrets.el.example` | Template for local OAuth + calendar IDs |
@@ -47,6 +47,105 @@ ttf-ibm-plex
 Org files live in `~/org/` (not in this repo). Captures route to Personal /
 Arbor / School calendars; Canvas is pull-only. OAuth client ID/secret and
 calendar IDs stay in `private/org-gcal-secrets.el`.
+
+Sync: `SPC G s` (push), `SPC G f` (pull), `SPC G u` (unlock OAuth tokens).
+Events use **30-minute blocks** on Google Calendar (`org-gcal-event-default-duration`).
+
+## Org day planner
+
+Tasks without a manual time are **auto-slotted** into today's plan: **30 min**
+blocks by default, **5 min gaps** between tasks, `SCHEDULED` stored as a range
+(`<2026-09-01 Mon 14:00-14:30>`) so GCal shows the right length.
+
+### Todo workflow
+
+`TODO` → `IN_PROGRESS` → `WAITING_REPLY` / `NEEDS_REPLY` → `DONE` / `CANCELLED`
+
+- `IN_PROGRESS` auto-clocks; leaving it clocks out.
+- Finishing early or parking (`WAITING_REPLY`) **repacks** later tasks from
+  now + 5 min.
+- `DONE` / `CANCELLED` sort to the bottom of planner files when you leave the
+  heading (folds preserved).
+
+Planner files: `personal.org`, `arbor.org`, `school.org` (writable).
+`canvas.org` is import-only.
+
+### Capture (`SPC X`)
+
+| Template | Use |
+|----------|-----|
+| `t` | Personal task → auto-plan |
+| `a` | Arbor task → auto-plan |
+| `s` | School task → auto-plan |
+| `T` | Personal task with manual `SCHEDULED` (`%^T`) |
+
+On `C-c C-c`, you can plan the slot:
+
+| Input | Effect |
+|-------|--------|
+| `Enter` | Next open slot, 30 min |
+| `45m` | Next slot that fits 45 min |
+| `2pm` | Start at/after 2pm (30 min default) |
+| `2pm/1h` | 2pm start, 1 hour block |
+
+Hit `Enter` on the one-liner to get separate **duration** and **start** prompts.
+If a requested start is busy, the next gap from that time is used. Overlaps
+with existing events prompt before confirm.
+
+### Command center
+
+Split view: **10-day agenda** (left) + **weekly time chart** (right, ~58% of
+frame width). `NEEDS_REPLY` has its own section; `WAITING_REPLY` is parked at
+the bottom.
+
+| Key | Action |
+|-----|--------|
+| `SPC o A` then `d` | Command center (agenda dispatcher — preferred) |
+| `SPC o D` | Command center (direct; lowercase `d` is Doom's debugger) |
+| `SPC o a d` | Command center (under `SPC o a` org submenu) |
+| `SPC o C` | Bar chart only (side window) |
+
+In the chart pane (`*Org Command Chart*`):
+
+| Key | Action |
+|-----|--------|
+| `t` | Cycle actual → planned → both |
+| `a` / `Tab` | Back to agenda pane |
+
+Agenda setup registers early in `config.el` so command center survives even if
+later day-planner init fails. `after! org-agenda` re-applies it on load.
+
+### Keybindings
+
+Local leader is **`,`** (vim-style).
+
+| Key | Action |
+|-----|--------|
+| `, S` | Sort entire planner file (open tasks first) |
+| `, F` | Fold `DONE` / `CANCELLED` subtrees |
+| `, P` | Repack today's remaining plan from now |
+| `, L` | Plan / re-slot heading at point (same prompts as capture) |
+| `, +` | Add manual `CLOCK` time at heading |
+| `SPC o H` | Weekly `CLOCK` time chart |
+| `SPC o B` | Schedule sidecar (what's booked) |
+| `SPC o W` | Arbor timecard |
+| `SPC o S` | Sort entire planner file |
+| `SPC o P` | Repack today |
+| `SPC o L` | Plan / re-slot at point |
+| `SPC o M` | Capture + manual time |
+| `SPC h e` | `*Messages*` log (errors, `org-gcal`, etc.) |
+
+Buffer menu (`SPC b …`) uses Doom defaults again (`SPC b B` = switch buffer).
+Custom kill-with-save: `SPC b k` / `SPC b d`, kill all → dashboard: `SPC b K`.
+
+### Agenda
+
+Open the dispatcher with `SPC o A`. Other custom views include `r` Arbor,
+`p` Personal, `s` School, `R` Arbor week + clock report (was `A`), `W`
+timecard, `T` weekly chart.
+
+- `M-<up>` / `M-<down>` in agenda: slide events ±15 min (GCal push queued).
+- `q` quits agenda and command-center chart.
 
 ## Org + Typst math
 
