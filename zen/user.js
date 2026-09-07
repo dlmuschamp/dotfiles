@@ -3,12 +3,14 @@
 // its name is randomized per install.
 //
 // Nothing here is sensitive. Cookie/permission exceptions are not prefs and
-// live in the profile's permissions.sqlite instead.
+// live in the profile's permissions.sqlite instead (applied by bin/zen-sso-fix).
 
 // --- Microsoft / Stanford SSO ------------------------------------------------
-// These only widen the margins around Outlook's auth flow. None of them fixes
-// the "You're signed out of your account" loop, whose cause is unconfirmed; see
-// `bin/zen-sso-fix` for what is actually known and how to recover.
+// Confirmed 2026-09-07: a fresh Zen profile can sign into Outlook and stay
+// signed in across a second cold tab. The logout loop is poisoned OWA site
+// data in the normal profile (especially after redirects to
+// outlook.cloud.microsoft), not the Zen engine and not extensions. Prefs below
+// only widen the margins around the auth flow; zen-sso-fix is the reset.
 //
 // Storage-access grants are what let Outlook's login.microsoftonline.com iframe
 // reach its unpartitioned cookies under Total Cookie Protection. At the default

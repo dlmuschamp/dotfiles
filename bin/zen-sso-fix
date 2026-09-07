@@ -4,26 +4,24 @@
 # Stanford login ("You're signed out of your account. It's a good idea to close
 # all browser windows.").
 #
-# What is established, from the redirect chain in places.sqlite: authentication
-# succeeds, OWA loads, and then the page itself navigates to AAD's logout
-# endpoint carrying a logout_hint for the account and an MSAL state blob marking
-# a deliberate logoutRedirect(). So the token is valid and OWA discards it.
-# Failures correlate with Outlook cookies left over from an earlier session;
-# deleting just those and letting OWA mint fresh ones has cleared it, without
-# re-authenticating.
+# Confirmed 2026-09-07: a brand-new Zen profile signs in and stays signed in
+# across a second cold Outlook tab. The engine is fine; the normal profile's
+# Outlook state is not. Failures correlate with landing on
+# outlook.cloud.microsoft after Duo; working sessions stay on
+# outlook.office.com. Private windows and fresh profiles work because they have
+# none of that host's broken site data. Extensions are not involved (safe mode
+# still fails).
 #
-# What is NOT established: why OWA rejects the session. The suspect is the
-# HttpOnly OIDC cookie carrying stale session state, but that is unproven and
-# would need MOZ_LOG capture of the live failure to confirm. This is a
-# recurring, widely reported Firefox/OWA problem with no confirmed root cause
-# upstream, so treat this script as a recovery, not a cure.
+# Default mode clears Outlook cookies (including partitioned copies) plus
+# Outlook site data and the HTTP cache, and re-applies cookie / storage-access /
+# ETP exceptions so Total Cookie Protection does not partition
+# login.microsoftonline.com away from OWA. AAD cookies are kept.
 #
-# Deliberately narrow. It touches Outlook cookies only, so login.microsoftonline
-# and Stanford SSO survive and recovery costs a page reload rather than a fresh
-# Duo push. Earlier versions of this script also wiped localStorage, IndexedDB,
-# service workers and the HTTP cache for every Microsoft domain; that was based
-# on a diagnosis that later proved wrong, and it forced a full SAML re-login for
-# no benefit. Use --deep if the narrow reset ever stops working.
+# Important: keeping AAD is not always enough. On 2026-09-07 the Outlook-only
+# clear still failed (Stanford login → immediate sign-out, no Duo). --deep,
+# which also clears Microsoft/AAD cookies and related storage, then matched the
+# working fresh-profile path (full SSO + Duo → stay signed in across tabs).
+# Prefer --deep / zen-outlook --recover when the sign-out loop is active.
 #
 # Zen must be fully closed, since it holds a write lock on cookies.sqlite.
 #
@@ -44,6 +42,44 @@ outlook_hosts=(
   outlook.office.com
   outlook.office365.com
   outlook.cloud.microsoft
+  sdf.outlook.cloud.microsoft
+  outlook-sdf.office.com
+  outlook-sdf.office365.com
+)
+
+# Storage directory suffixes under storage/default/. Scoped to OWA itself.
+outlook_storage=(
+  outlook.office.com
+  outlook.office365.com
+  outlook.cloud.microsoft
+  sdf.outlook.cloud.microsoft
+)
+
+# Origins that need durable cookie Allow + ETP off + storage-access grants.
+allow_origins=(
+  https://login.microsoftonline.com
+  https://login.live.com
+  https://login.windows.net
+  https://outlook.office.com
+  https://outlook.office365.com
+  https://outlook.cloud.microsoft
+  https://cloud.microsoft
+  https://office.com
+  https://www.office.com
+  https://login.stanford.edu
+  https://idp.stanford.edu
+)
+
+# First-party origins that must be able to read login.microsoftonline.com
+# cookies from a hidden iframe under Total Cookie Protection.
+storage_access_first_parties=(
+  https://outlook.office.com
+  https://outlook.office365.com
+  https://outlook.cloud.microsoft
+  https://cloud.microsoft
+  https://office.com
+  https://www.office.com
+  https://m365.cloud.microsoft
 )
 
 # --deep only. Widened to every Microsoft origin, which does cost a re-login.
@@ -66,7 +102,7 @@ if [[ ! -f $zen_home/profiles.ini ]]; then
   exit 1
 fi
 
-if pgrep -x zen-bin >/dev/null || pgrep -f '/zen/zen$' >/dev/null; then
+if pgrep -x zen-bin >/dev/null; then
   printf 'Zen is still running. Quit it completely, then re-run.\n' >&2
   exit 1
 fi
@@ -102,11 +138,12 @@ printf 'Profile: %s\n\n' "$profile"
 backup="$profile/.sso-fix-backup.$(date +%Y%m%d%H%M%S)"
 mkdir -p "$backup"
 cp -- "$profile/cookies.sqlite" "$backup/cookies.sqlite"
-if (( deep )); then
-  for f in storage.sqlite serviceworker.txt; do
-    if [[ -f $profile/$f ]]; then cp -- "$profile/$f" "$backup/$f"; fi
-  done
+if [[ -f $profile/permissions.sqlite ]]; then
+  cp -- "$profile/permissions.sqlite" "$backup/permissions.sqlite"
 fi
+for f in storage.sqlite serviceworker.txt; do
+  if [[ -f $profile/$f ]]; then cp -- "$profile/$f" "$backup/$f"; fi
+done
 printf 'Backed up to %s\n\n' "$backup"
 
 before=$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies;")
@@ -119,10 +156,14 @@ if (( deep )); then
     pred+="${pred:+ OR }host = '$d' OR host LIKE '%.$d' OR originAttributes LIKE '%$d%'"
   done
 else
+  # Exact Outlook hosts, dotted variants, and any cookie partitioned under an
+  # Outlook / cloud.microsoft top-level site.
   pred=""
   for h in "${outlook_hosts[@]}"; do
-    pred+="${pred:+ OR }host = '$h'"
+    pred+="${pred:+ OR }host = '$h' OR host = '.$h' OR originAttributes LIKE '%$h%'"
   done
+  pred+=" OR host LIKE '%safelinks.protection.outlook.com%'"
+  pred+=" OR originAttributes LIKE '%cloud.microsoft%'"
 fi
 
 sqlite3 "$profile/cookies.sqlite" "DELETE FROM moz_cookies WHERE $pred;"
@@ -134,10 +175,41 @@ printf 'SSO cookies kept: %s AAD, %s Stanford, %s Duo\n' \
   "$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies WHERE host LIKE '%stanford.edu';")" \
   "$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies WHERE host LIKE '%duosecurity.com';")"
 
-if (( deep )); then
-  removed=0
+# permission=1 is ALLOW, permission=2 is DENY (for trackingprotection: ETP off).
+# expireType=0 never expires. moz_perms has no unique constraint, so delete
+# before insert to stay idempotent across re-runs.
+now_ms=$(( $(date +%s) * 1000 ))
+perms_db="$profile/permissions.sqlite"
+[[ -f $perms_db ]] || sqlite3 "$perms_db" "CREATE TABLE moz_perms (id INTEGER PRIMARY KEY, origin TEXT, type TEXT, permission INTEGER, expireType INTEGER, expireTime INTEGER, modificationTime INTEGER);"
+
+upsert_perm() {
+  local origin=$1 type=$2 permission=$3
+  sqlite3 "$perms_db" \
+    "DELETE FROM moz_perms WHERE origin='$origin' AND type='$type';
+     INSERT INTO moz_perms (origin, type, permission, expireType, expireTime, modificationTime)
+     VALUES ('$origin', '$type', $permission, 0, 0, $now_ms);"
+}
+
+for origin in "${allow_origins[@]}"; do
+  upsert_perm "$origin" cookie 1
+  # DENY trackingprotection == turn Enhanced Tracking Protection off for site
+  # (same as clicking the shield icon and disabling it).
+  upsert_perm "$origin" trackingprotection 2
+done
+printf 'Cookie Allow + ETP-off applied: %s origins\n' "${#allow_origins[@]}"
+
+for origin in "${storage_access_first_parties[@]}"; do
+  upsert_perm "$origin" '3rdPartyStorage^https://login.microsoftonline.com' 1
+  upsert_perm "$origin" storageAccessAPI 1
+done
+printf 'Storage-access grants applied: %s first parties → login.microsoftonline.com\n' \
+  "${#storage_access_first_parties[@]}"
+
+clear_storage_for() {
+  local -n _domains=$1
+  local removed=0
   shopt -s nullglob
-  for d in "${deep_domains[@]}"; do
+  for d in "${_domains[@]}"; do
     for dir in "$profile"/storage/default/*"$d"*; do
       [[ -d $dir ]] || continue
       rm -rf -- "$dir"
@@ -147,33 +219,41 @@ if (( deep )); then
   shopt -u nullglob
   printf 'Storage origins cleared: %s\n' "$removed"
 
-  # Keep the quota manager index from pointing at directories that are gone.
   origin_pred=""
-  for d in "${deep_domains[@]}"; do
-    origin_pred+="${origin_pred:+ OR }origin LIKE '%$d'"
+  for d in "${_domains[@]}"; do
+    origin_pred+="${origin_pred:+ OR }origin LIKE '%$d%'"
   done
-  sqlite3 "$profile/storage.sqlite" "DELETE FROM origin WHERE $origin_pred;" 2>/dev/null || true
+  if [[ -n $origin_pred ]]; then
+    sqlite3 "$profile/storage.sqlite" "DELETE FROM origin WHERE $origin_pred;" 2>/dev/null || true
+  fi
+}
 
-  # Positional flat format, not safe to edit line by line, so drop it whole;
-  # every site re-registers its worker on the next visit.
+clear_storage_for outlook_storage
+
+if [[ -f $profile/serviceworker.txt ]]; then
   rm -f -- "$profile/serviceworker.txt"
   printf 'Service worker registrations reset\n'
+fi
 
-  cache_dir="$cache_home/zen/$profile_rel/cache2"
-  if [[ -d $cache_dir ]]; then
-    rm -rf -- "$cache_dir"
-    printf 'HTTP cache cleared\n'
-  fi
+# Cached redirects / SW responses can re-send a clean session to
+# outlook.cloud.microsoft. Clear the profile HTTP cache on every recovery.
+cache_dir="$cache_home/zen/$profile_rel/cache2"
+if [[ -d $cache_dir ]]; then
+  rm -rf -- "$cache_dir"
+  printf 'HTTP cache cleared\n'
+fi
+
+if (( deep )); then
+  clear_storage_for deep_domains
 fi
 
 cat <<'EOF'
 
 Done. Start Zen and open https://outlook.office.com/mail/
 
-The narrow reset keeps your Microsoft and Stanford sessions, so this should
-drop you straight back into your mail without a password or Duo prompt. If it
-instead sends you through a full login, that is expected only with --deep.
+Outlook site data is gone; AAD/Stanford/Duo cookies were kept when possible.
+You may still get Duo once. After mail loads, open a second normal tab to the
+same URL — that second cold entry is the real regression check.
 
-If the sign-out returns, quit Zen and run this again. If the narrow reset stops
-working, try: zen-sso-fix --deep
+If the sign-out returns, quit Zen and run: zen-sso-fix --deep
 EOF

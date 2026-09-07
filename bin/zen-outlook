@@ -1,0 +1,68 @@
+#!/bin/bash
+#
+# Open Outlook Web without tripping the sign-out loop.
+#
+# Always use the /mail/ path. Typing the bare outlook.office.com domain
+# redirects through outlook.cloud.microsoft and, with broken OWA site data in
+# the normal profile, reliably triggers logoutRedirect().
+#
+# Usage:
+#   zen-outlook           open mail in a new normal tab (or launch Zen)
+#   zen-outlook --recover quit Zen, clear Outlook site data, reopen mail
+
+set -euo pipefail
+
+url=https://outlook.office.com/mail/
+zen_bin=/opt/zen-browser-bin/zen-bin
+
+zen_running() {
+  pgrep -x zen-bin >/dev/null
+}
+
+open_normal() {
+  if zen_running; then
+    exec "$zen_bin" --new-tab "$url"
+  fi
+  exec "$zen_bin" "$url"
+}
+
+recover() {
+  if zen_running; then
+    printf 'Quitting Zen to clear Outlook site data...\n'
+    pkill -TERM -x zen-bin || true
+    for _ in $(seq 1 30); do
+      zen_running || break
+      sleep 0.5
+    done
+    if zen_running; then
+      printf 'Zen did not quit. Close it manually, then run: zen-sso-fix\n' >&2
+      exit 1
+    fi
+  fi
+  # Shallow Outlook-only clears can leave a half-valid AAD session that OWA
+  # rejects after Stanford login. The fix that worked 2026-09-07 was --deep
+  # (clears Microsoft cookies too; costs one Duo).
+  zen-sso-fix --deep
+  exec "$zen_bin" "$url"
+}
+
+case "${1:-}" in
+  --recover|-r) recover ;;
+  --help|-h)
+    cat <<'EOF'
+Usage: zen-outlook [--recover]
+
+  (no args)   Open https://outlook.office.com/mail/ in a new normal tab, or launch Zen.
+  --recover   Quit Zen, run zen-sso-fix --deep, and reopen mail. Use when you
+              see "You're signed out of your account". Costs one Duo.
+EOF
+    exit 0
+    ;;
+  '')
+    open_normal
+    ;;
+  *)
+    printf 'Usage: %s [--recover]\n' "${0##*/}" >&2
+    exit 2
+    ;;
+esac

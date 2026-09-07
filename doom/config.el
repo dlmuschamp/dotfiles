@@ -217,7 +217,7 @@ Preserves the buffer's current fold state."
   ;; Flow: TODO → IN_PROGRESS → WAITING_REPLY / NEEDS_REPLY → DONE / CANCELLED.
   (setq org-todo-keywords
         '((sequence "TODO(t)" "IN_PROGRESS(i)" "WAITING_REPLY(w)" "NEEDS_REPLY(r)" "|"
-           "DONE(d!)" "CANCELLED(c)")))
+           "DONE(d)" "CANCELLED(c)")))
   (setq org-todo-keyword-faces
         '(("IN_PROGRESS" . +org-todo-active)
           ("WAITING_REPLY" . +org-todo-onhold)
@@ -257,23 +257,34 @@ Preserves the buffer's current fold state."
            (org-back-to-heading t)
            (= (point) (save-excursion (org-back-to-heading t) (point))))))
 
+  (defvar luciano/org--clock-hook-p nil
+    "Reentrancy guard for `luciano/org-clock-on-state-change'.")
+
   (defun luciano/org-clock-on-state-change ()
     "Clock in on IN_PROGRESS; clock out when leaving IN_PROGRESS on this task.
 Refreshes the command-center chart so actual bars update immediately."
-    (cond
-     ((equal org-state "IN_PROGRESS")
-      (let ((org-clock-auto-clock-resolution nil))
-        (if (and (org-clocking-p) (not (luciano/org-clock-on-this-heading-p)))
-            ;; Different task already clocked — org-clock-in switches cleanly.
-            (org-clock-in)
-          (unless (org-clocking-p)
-            (org-clock-in)))))
-     ((and (equal org-last-state "IN_PROGRESS")
-           (not (equal org-state "IN_PROGRESS"))
-           (luciano/org-clock-on-this-heading-p))
-      (org-clock-out nil t)))
-    (when (fboundp 'luciano/org-refresh-command-chart)
-      (run-with-idle-timer 0.2 nil #'luciano/org-refresh-command-chart)))
+    (unless luciano/org--clock-hook-p
+      (let ((luciano/org--clock-hook-p t)
+            (agenda-win (and (boundp 'org-agenda-buffer-name)
+                             (get-buffer-window org-agenda-buffer-name))))
+        (cond
+         ((equal org-state "IN_PROGRESS")
+          (let ((org-clock-auto-clock-resolution nil)
+                ;; State is already IN_PROGRESS — don't re-run org-todo or open drawers.
+                (org-clock-in-switch-to-state nil))
+            (save-excursion
+              (if (and (org-clocking-p) (not (luciano/org-clock-on-this-heading-p)))
+                  (org-clock-in)
+                (unless (org-clocking-p)
+                  (org-clock-in)))))))
+         ((and (equal org-last-state "IN_PROGRESS")
+               (not (equal org-state "IN_PROGRESS"))
+               (luciano/org-clock-on-this-heading-p))
+          (save-excursion (org-clock-out nil t))))
+        (when agenda-win
+          (select-window agenda-win))
+        (when (fboundp 'luciano/org-refresh-command-chart)
+          (run-with-idle-timer 0.2 nil #'luciano/org-refresh-command-chart)))))
 
   (defun luciano/org--parse-duration-minutes (input)
     "Parse 45, 45m, 1h30m, 2h into integer minutes."
@@ -304,21 +315,33 @@ Refreshes the command-center chart so actual bars update immediately."
       (org-indent-line)
       ts))
 
-  (defun luciano/org-add-manual-time ()
+  (defun luciano/org-add-manual-time (&optional pick-end-time)
     "Add a completed CLOCK interval for time spent without auto-tracking.
-Use when you forgot IN_PROGRESS or forgot to switch tasks."
-    (interactive)
+Use when you forgot IN_PROGRESS or forgot to switch tasks.
+Works from Org headings and from the agenda/command center (`SPC o +`).
+With \\[universal-argument], prompt for when the clock ended (default now)."
+    (interactive "P")
     (require 'org-clock)
-    (unless (org-at-heading-p)
-      (user-error "Point must be on an Org heading"))
-    (let* ((dur-str (read-string "Time spent (45m, 1h30m, 2h): "))
+    (let* ((from-agenda (derived-mode-p 'org-agenda-mode))
+           (marker (or (and from-agenda (org-get-at-bol 'org-hd-marker))
+                       (and (org-at-heading-p) (point-marker))
+                       (user-error "Point must be on an Org task (agenda line or heading)")))
+           (dur-str (read-string "Time spent (45m, 1h30m, 2h): "))
            (mins (luciano/org--parse-duration-minutes dur-str)))
       (unless (and mins (> mins 0))
         (user-error "Could not parse duration: %s" dur-str))
-      (let* ((end (org-read-date t t nil "Clock ended (default now): "))
+      (let* ((end (if pick-end-time
+                      (org-read-date t t nil "Clock ended (default now): ")
+                    (current-time)))
              (start (time-subtract end (seconds-to-time (* 60 mins)))))
-        (luciano/org--insert-clock-interval start end)
-        (when (buffer-file-name) (save-buffer))
+        (with-current-buffer (marker-buffer marker)
+          (org-with-wide-buffer
+           (goto-char (marker-position marker))
+           (org-back-to-heading t)
+           (luciano/org--insert-clock-interval start end)
+           (when (buffer-file-name) (save-buffer))))
+        (when from-agenda
+          (org-agenda-redo t))
         (when (fboundp 'luciano/org-refresh-command-chart)
           (luciano/org-refresh-command-chart))
         (message "Added %d min clock (%s → %s)"
@@ -1416,17 +1439,13 @@ Includes point-in-time stamps (no end) as start-only rows."
                 (list :start start)))))))
 
   (defun luciano/org--read-plan-options (&optional force)
-    "Read optional duration and/or start (empty = auto). FORCE prompts outside capture."
+    "Read optional duration/start during capture (or when FORCE, e.g. `SPC o L').
+Empty input auto-slots with defaults — no follow-up prompts."
     (when (or force org-capture-mode)
       (let ((one (read-string
-                  "Plan [Enter=auto | 45m | 2pm | 2pm/1h] (or separate prompts next): ")))
-        (if (not (string-empty-p one))
-            (luciano/org--parse-plan-hint-string one)
-          (let ((dur-str (read-string "Duration (45m, 1h — Enter=30m): "))
-                (start-str (read-string "Start (2pm, 14:30 — Enter=next slot): ")))
-            (list :duration (or (luciano/org--parse-duration-minutes dur-str)
-                                (unless (string-empty-p dur-str) luciano/org--default-event-minutes))
-                  :start (luciano/org--parse-start-time-string start-str)))))))
+                  "Plan [Enter=auto | 45m | 2pm | 2pm/1h]: ")))
+        (unless (string-empty-p one)
+          (luciano/org--parse-plan-hint-string one)))))
 
   (defalias 'luciano/org--read-capture-plan-options #'luciano/org--read-plan-options)
 
@@ -1630,8 +1649,9 @@ Includes point-in-time stamps (no end) as start-only rows."
              here)))))))
 
   (defun luciano/org-capture-auto-schedule ()
-    "During capture, prompt for optional duration/start, then auto-slot."
-    (when (and (org-at-heading-p)
+    "During capture only: optional duration/start prompt, then auto-slot."
+    (when (and org-capture-mode
+               (org-at-heading-p)
                (luciano/org-planner-writable-file-p)
                (not (org-get-scheduled-time (point)))
                (member (org-get-todo-state) luciano/org--day-planner-states))
@@ -2077,18 +2097,19 @@ the line at point. Saves Org files and pushes writable calendars to GCal."
         :prefix "s"
         :desc "Sort entire planner file" "S" #'luciano/org-sort-open-first-or-dispatch)
   (map! :leader
-        ;; Capital D — lowercase d is Doom "Start a debugger" under SPC o.
-        :desc "Command bar chart" "o C" #'luciano/org-show-command-chart
-        ;; T stays with Doom's `+vterm/here' so a terminal can own a pane.
-        :desc "CLOCK time chart" "o H" #'luciano/org-weekly-time-chart
-        :desc "Open vterm here" "o T" #'+vterm/here
-        :desc "What's booked" "o B" #'luciano/org-show-schedule-sidecar
-        :desc "Arbor timecard" "o W" #'luciano/org-arbor-timecard
-        :desc "Sort entire planner file" "o S" #'luciano/org-sort-open-first
-        :desc "Repack today's plan" "o P" #'luciano/org-repack-today
-        :desc "Plan/slot heading at point" "o L" #'luciano/org-plan-at-point
-        :desc "Add manual CLOCK time" "o +" #'luciano/org-add-manual-time
-        :desc "Capture task + manual time" "o M" #'luciano/org-capture-manual-time))))
+        (:prefix "o"
+         ;; Capital D — lowercase d is Doom "Start a debugger" under SPC o.
+         :desc "Command bar chart" "C" #'luciano/org-show-command-chart
+         ;; T stays with Doom's `+vterm/here' so a terminal can own a pane.
+         :desc "CLOCK time chart" "H" #'luciano/org-weekly-time-chart
+         :desc "Open vterm here" "T" #'+vterm/here
+         :desc "What's booked" "B" #'luciano/org-show-schedule-sidecar
+         :desc "Arbor timecard" "W" #'luciano/org-arbor-timecard
+         :desc "Sort entire planner file" "S" #'luciano/org-sort-open-first
+         :desc "Repack today's plan" "P" #'luciano/org-repack-today
+         :desc "Plan/slot heading at point" "L" #'luciano/org-plan-at-point
+         :desc "Add manual CLOCK time" "+" #'luciano/org-add-manual-time
+         :desc "Capture task + manual time" "M" #'luciano/org-capture-manual-time))))
 
 ;;; ==========================================
 ;;; GOOGLE CALENDAR (ORG-GCAL)
@@ -2870,7 +2891,8 @@ Use SPC q q (or :qa) to leave Emacs."
         :m "M-<down>" #'luciano/org-agenda-slide-later
         :m "M-<up>"   #'luciano/org-agenda-slide-earlier
         "M-<down>"    #'luciano/org-agenda-slide-later
-        "M-<up>"      #'luciano/org-agenda-slide-earlier)
+        "M-<up>"      #'luciano/org-agenda-slide-earlier
+        :desc "Add manual CLOCK time" "+" #'luciano/org-add-manual-time)
   (after! evil-org-agenda
     (evil-define-key* 'motion evil-org-agenda-mode-map
       (kbd "M-<down>") #'luciano/org-agenda-slide-later
