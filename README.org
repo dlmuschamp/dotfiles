@@ -114,6 +114,23 @@ systemctl --user is-enabled mako          # should be masked
 pkill -f 'quickshell.*omarchy'              # autostart relaunches omarchy-shell
 #+END_SRC
 
+** Copilot key → Ctrl (=keyd/=)
+
+The Yoga's Copilot key is not a single keycode --- firmware sends
+=LeftShift + LeftMeta + F23=. Shortcut UIs often display that as
+Super+Shift and hide F23. =keyd/default.conf= remaps the full chord to
+Ctrl via =keyd= (kernel-level, works in Hyprland and TTY). Caps Lock
+stays =caps:super= in =hypr/input.lua= (separate from Copilot).
+
+#+BEGIN_SRC sh
+dotfiles-keyd-install    # install keyd, copy config to /etc/keyd, enable service
+sudo keyd monitor        # press Copilot to confirm the three-key chord
+#+END_SRC
+
+Do not drop =f23= from the chord unless =keyd monitor= proves the
+hardware omits it --- a two-key =Shift+Meta= remap would also eat real
+=Super + Shift + letter= binds.
+
 GTK apps follow dark mode via the tracked =gtk-3.0/= and =gtk-4.0/=
 =settings.ini= overrides (=prefer-dark= + =Adwaita-dark=). Bootstrap clones
 [[https://github.com/ubuntu/yaru][ubuntu/yaru]] into =~/.local/src/ubuntu-yaru=

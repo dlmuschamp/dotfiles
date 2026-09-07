@@ -104,7 +104,7 @@ fi
 
 if (( want_services )); then
   step 'Enabling system services'
-  for service in sddm NetworkManager bluetooth ufw; do
+  for service in sddm NetworkManager bluetooth ufw keyd; do
     if systemctl list-unit-files "$service.service" >/dev/null 2>&1; then
       sudo systemctl enable "$service.service"
       printf '  enabled %s\n' "$service"
@@ -141,9 +141,10 @@ Remaining steps that need a human:
 
   1. Log out and back in so UWSM picks up the tracked environment.
   2. dotfiles-pam-login && dotfiles-sddm-install   (SDDM theme + fingerprint PAM)
-  3. Launch Zen once to create its profile, then re-run ./bootstrap so
+  3. dotfiles-keyd-install   (Copilot key → Ctrl; needs sudo)
+  4. Launch Zen once to create its profile, then re-run ./bootstrap so
      zen/user.js gets linked, quit Zen, and run: zen-sso-fix
-  4. Sign in to Zen Sync to pull down bookmarks, passwords and extensions.
+  5. Sign in to Zen Sync to pull down bookmarks, passwords and extensions.
      Those are account data, deliberately not stored in this repo.
 
 EOF

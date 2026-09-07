@@ -37,6 +37,7 @@ hyprsunset
 inotify-tools
 jq
 kicad
+keyd
 kitty
 lazygit
 libnotify

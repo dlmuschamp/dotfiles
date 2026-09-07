@@ -1,0 +1,26 @@
+#!/bin/bash
+# Install keyd + the tracked Copilot→Ctrl remap, then enable the daemon.
+
+set -euo pipefail
+
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+src="$repo_dir/keyd/default.conf"
+dst=/etc/keyd/default.conf
+
+if [[ ! -f $src ]]; then
+  printf 'Missing keyd config: %s\n' "$src" >&2
+  exit 1
+fi
+
+if ! pacman -Q keyd &>/dev/null; then
+  printf 'Installing keyd...\n'
+  sudo pacman -S --needed --noconfirm keyd
+fi
+
+sudo mkdir -p /etc/keyd
+sudo cp -- "$src" "$dst"
+sudo systemctl enable --now keyd.service
+sudo keyd reload
+
+printf 'Installed %s and enabled keyd.\n' "$dst"
+printf 'Press Copilot: it should act as Ctrl. Debug with: sudo keyd monitor\n'
