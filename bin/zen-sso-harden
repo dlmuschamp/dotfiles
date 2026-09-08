@@ -1,0 +1,120 @@
+#!/bin/bash
+#
+# Permanent Outlook SSO hardening for Zen (not a private-window workaround).
+#
+# Evidence (2026-09-08 experiments): the "You're signed out / close all browser
+# windows" loop is OWA calling AAD logoutRedirect() after Duo because MSAL never
+# writes tokens on the Outlook origin. That post-auth failure was reproduced
+# with extensions active under the prior extension storage, and cleared when
+# extensions were disabled — while keeping AAD cookies. Brave never hit it
+# (no uBlock; Dark Reader present but Chromium auth path differs).
+#
+# This script pins Dark Reader to stay OFF on Microsoft / Stanford / Duo auth
+# hosts via Firefox storage-sync (survives restarts; syncs if enabled). It also
+# prints the uBlock allowlist to paste once into uBlock → Filters.
+#
+# Zen must be fully closed (same lock rules as zen-sso-fix).
+#
+# Usage: zen-sso-harden
+
+set -euo pipefail
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+zen_home="$config_home/zen"
+
+if pgrep -x zen-bin >/dev/null; then
+  printf 'Zen is still running. Quit it completely, then re-run.\n' >&2
+  exit 1
+fi
+
+if [[ ! -f $zen_home/profiles.ini ]]; then
+  printf 'No Zen profiles.ini under %s.\n' "$zen_home" >&2
+  exit 1
+fi
+
+profile_rel=$(python3 - "$zen_home/profiles.ini" <<'PY'
+import configparser, sys
+cp = configparser.ConfigParser()
+cp.read(sys.argv[1])
+install = next((cp[s]["Default"] for s in cp.sections()
+                if s.startswith("Install") and cp[s].get("Default")), None)
+if install:
+    print(install); raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Default") == "1":
+        print(cp[s]["Path"]); raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Path"):
+        print(cp[s]["Path"]); raise SystemExit
+raise SystemExit("no profile found")
+PY
+)
+
+profile="$zen_home/$profile_rel"
+sync_db="$profile/storage-sync-v2.sqlite"
+[[ -f $sync_db ]] || { printf 'No storage-sync-v2.sqlite in %s (open Zen once with Dark Reader installed).\n' "$profile" >&2; exit 1; }
+
+python3 - "$sync_db" <<'PY'
+import json, sqlite3, sys
+path = sys.argv[1]
+sites = [
+    "outlook.office.com",
+    "outlook.office365.com",
+    "outlook.cloud.microsoft",
+    "outlook.live.com",
+    "login.microsoftonline.com",
+    "login.microsoft.com",
+    "login.live.com",
+    "login.windows.net",
+    "office.com",
+    "www.office.com",
+    "cloud.microsoft",
+    "m365.cloud.microsoft",
+    "login.stanford.edu",
+    "idp.stanford.edu",
+    "duosecurity.com",
+    "api-531b0865.duosecurity.com",
+]
+con = sqlite3.connect(path)
+row = con.execute(
+    "SELECT data FROM storage_sync_data WHERE ext_id='addon@darkreader.org'"
+).fetchone()
+if not row or not row[0]:
+    raise SystemExit("Dark Reader not present in storage-sync; install/enable it once, then re-run.")
+data = json.loads(row[0])
+disabled = list(data.get("disabledFor") or [])
+added = [s for s in sites if s not in disabled]
+disabled.extend(added)
+data["disabledFor"] = disabled
+data["enabled"] = True
+payload = json.dumps(data, separators=(",", ":"))
+con.execute(
+    "UPDATE storage_sync_data SET data=?, sync_change_counter=sync_change_counter+1 WHERE ext_id='addon@darkreader.org'",
+    (payload,),
+)
+mirror = con.execute(
+    "SELECT guid FROM storage_sync_mirror WHERE ext_id='addon@darkreader.org'"
+).fetchone()
+if mirror:
+    con.execute("UPDATE storage_sync_mirror SET data=? WHERE guid=?", (payload, mirror[0]))
+con.commit()
+print(f"Dark Reader disabledFor: {len(disabled)} hosts ({len(added)} newly added)")
+for s in sites:
+    print(f"  - {s}")
+PY
+
+filters="$HOME/dotfiles/zen/ublock-outlook-exceptions.txt"
+cat <<EOF
+
+Done.
+
+Dark Reader will ignore Microsoft / Stanford / Duo auth hosts (via storage-sync).
+
+uBlock Origin — paste once (Dashboard → My filters), or import:
+  $filters
+
+If the sign-out loop returns anyway:
+  zen-outlook --recover
+
+See: $HOME/dotfiles/zen/outlook-sso-findings.txt
+EOF

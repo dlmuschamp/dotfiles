@@ -157,50 +157,67 @@ passwords and extensions are account data and are deliberately not stored in
 this repo; pull them down with Zen Sync instead.
 
 ** The Microsoft SSO logout loop
+Full experiment log + causal model: [[file:zen/outlook-sso-findings.txt]].
 
-Signing in to Outlook would land on "You're signed out of your account. It's a
-good idea to close all browser windows," over and over --- even in Zen safe mode,
-while a private window or a brand-new Zen profile worked fine.
+*** What was broken
 
-*Root cause (confirmed 2026-09-07):* poisoned Outlook /site data/ in the
-normal profile, not the Zen engine and not extensions. A fresh profile signs
-in with Duo and stays signed in on a second cold tab. Failures in the normal
-profile correlate with landing on =outlook.cloud.microsoft= after auth; working
-sessions stay on =outlook.office.com=. OWA then calls =logoutRedirect()= against
-inconsistent local state (MSAL / service workers / cookies). Brave never hit
-this because Chromium keeps Microsoft's multi-host session coherent.
+Signing into Stanford Outlook in Zen would complete Duo, then immediately bounce
+to Microsoft's "You're signed out of your account. It's a good idea to close
+all browser windows" page. Private windows and Brave worked; a brand-new Zen
+profile also worked. So the engine was fine --- the normal profile's Outlook
+auth path was not.
 
-Two Firefox anti-tracking mechanisms also widen the margins around Outlook's
-auth flow and are pinned in =zen/user.js= / applied by =zen-sso-fix=:
+What actually failed: after Duo, Outlook Web (OWA) never finished MSAL on the
+mail origin (no usable token cache / session cookies). OWA then called AAD
+=logoutRedirect()=, which is that scary sign-out page. Brave completed the
+=#code=...= token exchange on =outlook.cloud.microsoft=; broken Zen runs did
+not. Clearing Outlook/Microsoft site data (=zen-outlook --recover=) fixed it
+temporarily by forcing a clean login, but the loop came back.
 
-- *Bounce Tracking Protection* --- disabled in =user.js=.
-- *Total Cookie Protection* --- cookie Allow, ETP-off, and
-  =3rdPartyStorage^https://login.microsoftonline.com= grants so OWA's hidden
-  AAD iframe can renew tokens.
+Root cause (confirmed 2026-09-08): Firefox + extension interference on
+Microsoft's multi-host SSO (especially Dark Reader rewriting login/OWA pages
+and uBlock potentially blocking auth hosts). Disabling extensions made login
+succeed even while keeping AAD cookies; the failure reproduced with extensions
+active. Brave never hit this the same way (and this Brave profile has no
+uBlock).
 
-Those permissions are not expressible as prefs alone, so =bin/zen-sso-fix=
-writes them into =permissions.sqlite=. Zen must be fully closed when it runs.
+*** Permanent harden
 
-*Recovery* --- when the sign-out loop is active, use =--deep= (also what
-=zen-outlook --recover= runs). A shallow Outlook-only clear can leave a
-half-valid AAD session that still fails after Stanford login; clearing
-Microsoft/AAD cookies forces the same full SSO + Duo path that works in a
-fresh profile:
+1. Dark Reader stays off on Microsoft / Stanford / Duo auth hosts:
 
 #+BEGIN_SRC sh
-zen-sso-fix --deep      # clears Microsoft/Outlook state; costs one Duo
-zen-sso-fix             # milder: Outlook-only; keeps AAD if you only need grants
+zen-sso-harden           # writes disabledFor into Zen storage-sync (Zen must be quit)
 #+END_SRC
 
-*Daily use* --- always open mail at the =/mail/= path, never the bare domain:
+2. uBlock Origin allowlist (paste once): open the uBlock dashboard → *My
+   filters* → paste the contents of =zen/ublock-outlook-exceptions.txt= →
+   *Apply changes*. Those =@@||= rules tell uBlock not to treat the SSO /
+   Outlook document loads as something to block.
+
+Also pinned in =zen/user.js= / =zen-sso-fix=: Bounce Tracking Protection off;
+cookie Allow + ETP-off + =3rdPartyStorage^https://login.microsoftonline.com=
+grants for OWA/AAD hosts.
+
+*** Recovery (if the loop returns)
+
+#+BEGIN_SRC sh
+zen-outlook --recover    # quit Zen, zen-sso-fix --deep, reopen mail (costs Duo)
+zen-sso-fix --deep      # same wipe without relaunch
+#+END_SRC
+
+Then confirm Dark Reader is still disabled on Outlook/login pages and that the
+uBlock My filters exceptions are still present.
+
+*** Daily use
+
+Always open mail at the =/mail/= path, never the bare domain:
 
 #+BEGIN_SRC sh
 zen-outlook              # open https://outlook.office.com/mail/ in a normal tab
-zen-outlook --recover    # quit Zen, zen-sso-fix --deep, reopen mail
 #+END_SRC
 
-After recovery, verify with a *second* cold tab to the same URL. Do not
-disable cookies for Outlook --- that breaks SSO entirely.
+After recovery, verify with a *second* cold tab. Do not disable cookies for
+Outlook --- that breaks SSO entirely.
 
 * Maintenance (=bin/dotfiles-update=)
 

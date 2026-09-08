@@ -2,6 +2,9 @@
 #
 # Open Outlook Web without tripping the sign-out loop.
 #
+# Permanent harden (Dark Reader SSO exclusions): zen-sso-harden
+# Findings: ~/dotfiles/zen/outlook-sso-findings.txt
+#
 # Always use the /mail/ path. Typing the bare outlook.office.com domain
 # redirects through outlook.cloud.microsoft and, with broken OWA site data in
 # the normal profile, reliably triggers logoutRedirect().

@@ -4,13 +4,18 @@
 //
 // Nothing here is sensitive. Cookie/permission exceptions are not prefs and
 // live in the profile's permissions.sqlite instead (applied by bin/zen-sso-fix).
+// Dark Reader site exclusions live in storage-sync (applied by bin/zen-sso-harden).
 
 // --- Microsoft / Stanford SSO ------------------------------------------------
-// Confirmed 2026-09-07: a fresh Zen profile can sign into Outlook and stay
-// signed in across a second cold tab. The logout loop is poisoned OWA site
-// data in the normal profile (especially after redirects to
-// outlook.cloud.microsoft), not the Zen engine and not extensions. Prefs below
-// only widen the margins around the auth flow; zen-sso-fix is the reset.
+// 2026-09-08 experiments: the logout loop is OWA calling AAD logoutRedirect()
+// after Duo because MSAL fails to establish tokens on the Outlook origin.
+// That failure was tied to extension interference (Dark Reader / uBlock) on
+// Firefox's multi-host Microsoft auth path — not "Zen is broken" (clean
+// profile and extension-off main profile both work; Brave never failed).
+//
+// Prefs below only widen margins. Permanent pin: zen-sso-harden (Dark Reader
+// disabledFor on SSO hosts) + uBlock exceptions in zen/ublock-outlook-exceptions.txt.
+// Emergency recovery: zen-outlook --recover. Details: zen/outlook-sso-findings.txt.
 //
 // Storage-access grants are what let Outlook's login.microsoftonline.com iframe
 // reach its unpartitioned cookies under Total Cookie Protection. At the default

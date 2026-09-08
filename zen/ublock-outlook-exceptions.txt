@@ -1,0 +1,14 @@
+! Outlook / Microsoft SSO — do not block auth or token endpoints (Zen/Firefox)
+@@||login.microsoftonline.com^$document
+@@||login.microsoft.com^$document
+@@||login.live.com^$document
+@@||login.windows.net^$document
+@@||outlook.office.com^$document
+@@||outlook.office365.com^$document
+@@||outlook.cloud.microsoft^$document
+@@||office.com^$document
+@@||cloud.microsoft^$document
+@@||m365.cloud.microsoft^$document
+@@||login.stanford.edu^$document
+@@||idp.stanford.edu^$document
+@@||duosecurity.com^$document

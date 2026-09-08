@@ -1,0 +1,139 @@
+Outlook Web SSO logout loop — Zen findings
+==========================================
+Last updated: 2026-09-08 (controlled experiments; permanent harden applied)
+Prior work: agent chats 000ff096-ece2-4edc-bece-2839f6de4b73,
+            88a64113-e237-4a4d-8ec5-cba4059fbdc7
+Tools:      ~/dotfiles/bin/zen-outlook
+            ~/dotfiles/bin/zen-sso-fix
+            ~/dotfiles/bin/zen-sso-harden   ← permanent Dark Reader pin
+            ~/dotfiles/zen/ublock-outlook-exceptions.txt
+Prefs:      ~/dotfiles/zen/user.js
+Docs:       ~/dotfiles/README.org
+
+================================================================
+FINAL CAUSAL MODEL (confidence: high on mechanism, high on extension role)
+================================================================
+
+What the user sees
+------------------
+After Stanford/Duo (or a half-SSO), Outlook navigates to:
+  https://login.microsoftonline.com/.../oauth2/v2.0/logout?...
+That AAD page is "You're signed out of your account. It's a good idea to
+close all browser windows." OWA decided the local session is unusable and
+called logoutRedirect(). Auth itself succeeded.
+
+Hard evidence: Brave vs Zen on the same afternoon (2026-09-08)
+--------------------------------------------------------------
+Brave success history:
+  outlook.cloud.microsoft/mail/#code=<auth_code>...
+  then mail loads; cookies include DefaultAnchorMailbox, msal.cache.encryption,
+  ESTSAUTH session cookies, etc.
+
+Zen failure history (repeated):
+  Duo callback → outlook.*.com/mail/#  (empty hash in history) → /logout within ~1–2s
+  localStorage after failure: msal.version only (0 token keys), olk-authTimings present,
+  isauthed absent.
+
+So the point of failure is post-redirect MSAL session establishment on the
+Outlook origin (authorization code → tokens + session cookies), not Duo.
+
+Why Brave "never did this"
+--------------------------
+Brave completed the fragment `#code=` → token exchange on outlook.cloud.microsoft.
+Zen under the broken configuration did not leave a usable MSAL cache. Chromium's
+cookie / Related Website Sets model is more forgiving for Microsoft's multi-host
+auth; Firefox + page-mutating / request-blocking extensions make the same flow
+fragile. Brave profile here has Dark Reader + Vimium but **not** uBlock.
+
+What is NOT the root cause (falsified 2026-09-08)
+-------------------------------------------------
+1. OIDC cookie value '1' — present on working clean profiles too.
+2. "cloud.microsoft stranded login_hint alone" — EXP-B wiped cloud.microsoft
+   completely; after full Duo, still logged out (extensions still had old storage).
+3. "Keeping ESTSAUTHPERSISTENT alone always fails" — EXP-H: extensions OFF,
+   AAD kept, Outlook storage wiped → SUCCESS after Duo.
+4. Zen engine broken — clean profile and extension-off main profile both work.
+5. Missing cookie Allow / ETP exceptions — already present; necessary but not
+   sufficient when extensions interfere.
+
+What IS required for the failure we reproduced today
+----------------------------------------------------
+Extension interference on the SSO / OWA boot path, interacting with Firefox's
+stricter partitioning and Microsoft's host migration (office.com ↔ cloud.microsoft).
+
+Controlled results (main profile, Zen quit between mutations):
+
+  EXP-B  wipe cloud.microsoft only; keep AAD + office.com MSAL; ext ON (old storage)
+         → LOGOUT after Duo (even with clean cloud origin)
+
+  EXP-C  wipe both Outlook storages + cache; keep AAD; ext ON (old storage)
+         → LOGOUT on outlook.office.com after Duo
+         (redirect_uri was office.com — host migration not required)
+
+  EXP-D  wipe Outlook + AAD; ext ON (old storage)
+         → LOGOUT after Duo (fresh AAD written during the attempt, still died)
+
+  EXP-E  wipe Outlook + AAD; ext OFF (XPIs moved aside)
+         → SUCCESS; second cold tab OK; msal tokens written
+
+  EXP-H  wipe Outlook only; keep AAD; ext OFF
+         → SUCCESS  (proves AAD keep is fine without extensions)
+
+  EXP-G  wipe Outlook + AAD; ext ON but freshly re-enabled (old moz-extension
+         storage had been deleted earlier)
+         → SUCCESS
+
+  Final  Dark Reader disabledFor SSO hosts via storage-sync; extensions ON;
+         open office.com + cloud.microsoft
+         → both origins isauthed with MSAL tokens; logout_count=0
+
+Interpretation
+--------------
+- Old extension storage + Firefox Outlook login = failure even after AAD wipe.
+- Disabling extensions (or resetting their storage) removes the failure.
+- Site data / AAD wipes (--deep) still help when state is already poisoned, which
+  is why zen-outlook --recover worked on 2026-09-07 — but wipes are recovery,
+  not the permanent root fix.
+- Prior "safe mode still failed" does not contradict this: safe mode does not
+  clear poisoned OWA/AAD site data. Once poison exists, extensions are not
+  needed to keep failing.
+
+Likely extension culprits (ordered)
+-----------------------------------
+1. Dark Reader (dynamicTheme, enabledByDefault) — mutates DOM on login.microsoftonline.com
+   / OWA boot; known to break Microsoft web apps on Firefox.
+2. uBlock Origin — can block auth/telemetry/token endpoints once filter lists load.
+   Brave install here has no uBlock.
+3. Vimium / pdf-dark-mode — low suspicion; not isolated as necessary.
+
+Permanent fix applied
+---------------------
+1. `zen-sso-harden` writes Dark Reader `disabledFor` for Microsoft + Stanford + Duo
+   hosts into `storage-sync-v2.sqlite` (Zen must be closed).
+2. `zen/ublock-outlook-exceptions.txt` — paste into uBlock → My filters once.
+3. Keep existing `zen-sso-fix` cookie/ETP/storage-access grants + bounce-tracking
+   prefs in `zen/user.js`.
+4. Keep `zen-outlook --recover` (= `--deep`) as emergency recovery.
+
+User action still needed once
+-----------------------------
+Open uBlock Dashboard → My filters → paste contents of
+  ~/dotfiles/zen/ublock-outlook-exceptions.txt
+→ Apply changes.
+
+Regression checks
+-----------------
+[x] Login with Duo succeeds on main profile
+[x] Second cold tab stays signed in
+[x] outlook.cloud.microsoft also has MSAL + isauthed after navigation
+[ ] Still healthy after overnight + next cold start (check tomorrow)
+[ ] After confirming, optional: re-run zen-sso-harden after any Dark Reader reset
+
+If it returns
+-------------
+1. Confirm Dark Reader site list still excludes SSO hosts (popup → site toggle).
+2. Confirm uBlock My filters still has the @@ exceptions.
+3. zen-outlook --recover
+4. Append new evidence to this file; do not assume private windows are the fix.
+
+Experiment raw dumps: /tmp/outlook-sso-exp/
