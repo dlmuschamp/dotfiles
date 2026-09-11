@@ -1,4 +1,5 @@
-#general.import = [ "~/.config/omarchy/current/theme/alacritty.toml" ]
+# Colors come from the active Omarchy/Aether theme (reloads when the file is touched).
+general.import = [ "~/.local/state/omarchy/current/theme/alacritty.toml" ]
 
 [env]
 TERM = "xterm-256color"
@@ -7,19 +8,15 @@ TERM = "xterm-256color"
 osc52 = "CopyPaste"
 
 [font]
-normal = { family = "JetBrainsMonoNL Nerd Font Mono" }
-bold = { family = "JetBrainsMonoNL Nerd Font Mono" }
-italic = { family = "JetBrainsMonoNL Nerd Font Mono" }
-size = 13
+normal = { family = "BlexMono Nerd Font Mono" }
+bold = { family = "BlexMono Nerd Font Mono" }
+italic = { family = "BlexMono Nerd Font Mono" }
+size = 14.5
 
 [window]
 padding.x = 14
 padding.y = 14
 decorations = "Full"
-
-[colors.primary]
-background = "#000000"
-foreground = "#FFFFFF"
 
 [cursor]
 style = {shape="Beam", blinking="On"}

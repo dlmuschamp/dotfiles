@@ -1,0 +1,9 @@
+#!/bin/bash
+# Called by omarchy-theme-set after Aether/Omarchy applies a theme.
+# Keep Doom Emacs faces in sync (nvim + alacritty already reload via Omarchy).
+
+THEME_NAME="${1:-}"
+
+if pgrep -x emacs >/dev/null 2>&1; then
+  emacsclient -n -e '(luciano/apply-omarchy-theme-faces)' >/dev/null 2>&1 || true
+fi

@@ -90,6 +90,7 @@ tldr
 tmux
 tree
 ttf-ibm-plex
+ttf-ibmplex-mono-nerd
 ttf-jetbrains-mono-nerd
 ttf-liberation
 ttf-nerd-fonts-symbols-mono

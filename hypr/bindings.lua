@@ -1,5 +1,9 @@
 -- Published application bindings. These intentionally override any changing
 -- Omarchy defaults and do not install the applications they reference.
+
+-- Kill Omarchy's niri-style scrolling layout toggle (default Super+L).
+hl.unbind("SUPER + L")
+
 o.bind("SUPER + RETURN", "Terminal", [=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)"]=])
 o.bind("SUPER + ALT + RETURN", "Tmux", [=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)" bash -c "tmux attach || tmux new -s Work"]=])
 o.bind("SUPER + SHIFT + RETURN", "Browser", "omarchy-launch-browser")

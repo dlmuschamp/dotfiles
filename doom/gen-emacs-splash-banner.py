@@ -4,7 +4,7 @@ from pathlib import Path
 import colorsys
 import re
 
-SPLASH = Path("/usr/share/emacs/30.2/etc/images/splash.xpm")
+SPLASH = Path("/usr/share/emacs/31.1/etc/images/splash.xpm")
 OUT = Path(__file__).resolve().parent / "emacs-splash-banner.el"
 
 # Slightly smaller than the first high-res version (~73x32).

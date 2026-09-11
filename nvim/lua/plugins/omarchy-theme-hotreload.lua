@@ -5,6 +5,7 @@ return {
 		lazy = false,
 		priority = 1000,
 		config = function()
+			-- transparency.lua is disabled (.off) so Aether solid backgrounds stick.
 			local transparency_file = vim.fn.stdpath("config") .. "/plugin/after/transparency.lua"
 
 			vim.api.nvim_create_autocmd("User", {

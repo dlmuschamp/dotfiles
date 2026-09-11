@@ -4,6 +4,8 @@ hl.config({
     gaps_in = 0,
     gaps_out = 0,
     border_size = 1,
+    -- Keep classic dwindle tiling; never default to niri-style scrolling.
+    layout = "dwindle",
   },
 
   decoration = {
