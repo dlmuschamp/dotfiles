@@ -1,11 +1,13 @@
 Outlook Web SSO logout loop — Zen findings
 ==========================================
-Last updated: 2026-09-08 (controlled experiments; permanent harden applied)
+Last updated: 2026-09-10 (overnight regression diagnosed; guard added)
 Prior work: agent chats 000ff096-ece2-4edc-bece-2839f6de4b73,
-            88a64113-e237-4a4d-8ec5-cba4059fbdc7
+            88a64113-e237-4a4d-8ec5-cba4059fbdc7,
+            a9e3c010-6a45-4c69-9927-1eacbf5907d7
 Tools:      ~/dotfiles/bin/zen-outlook
             ~/dotfiles/bin/zen-sso-fix
-            ~/dotfiles/bin/zen-sso-harden   ← permanent Dark Reader pin
+            ~/dotfiles/bin/zen-sso-harden   ← Dark Reader + uBlock My filters
+            ~/dotfiles/bin/zen-sso-guard    ← wipe half-auth cloud.microsoft
             ~/dotfiles/zen/ublock-outlook-exceptions.txt
 Prefs:      ~/dotfiles/zen/user.js
 Docs:       ~/dotfiles/README.org
@@ -126,14 +128,66 @@ Regression checks
 [x] Login with Duo succeeds on main profile
 [x] Second cold tab stays signed in
 [x] outlook.cloud.microsoft also has MSAL + isauthed after navigation
-[ ] Still healthy after overnight + next cold start (check tomorrow)
-[ ] After confirming, optional: re-run zen-sso-harden after any Dark Reader reset
+[x] Failed overnight (2026-09-09 ~17:03 and 2026-09-10 ~17:41) — see below
+[ ] Healthy after guard+uBlock write + next cold start
+[ ] Still healthy after another overnight
+
+================================================================
+OVERNIGHT REGRESSION (2026-09-10) — why "fix didn't stick"
+================================================================
+
+User report: fix seemed fine after reboot / recover, then failed again later.
+History confirms logout loop at:
+  2026-09-09 17:02–17:03  office.com/mail → cloud.microsoft → /logout (~1s)
+  2026-09-10 17:41        cloud.microsoft → /logout (~1s)
+
+Live profile at failure (Zen still open; read-only copies):
+
+  outlook.office.com       isauthed=1, ~20 MSAL token keys  ← still healthy
+  outlook.cloud.microsoft  login_hint + authTimings, msal.version ONLY ← POISON
+
+So Microsoft's host migration lands you on a half-auth origin. OWA tries
+silent MSAL, gets nothing usable, calls logoutRedirect(). Private windows
+still work because they have no poisoned cloud.microsoft storage.
+
+What survived from 2026-09-08 harden
+------------------------------------
+- Dark Reader disabledFor: all 16 SSO hosts still present in storage-sync.
+- Cookie Allow + ETP-off: still expireType=0 on the allow_origins set.
+- user.js bounce-tracking / 3rd-party storage expiry prefs: still linked.
+
+What did NOT stick / was never applied
+--------------------------------------
+1. uBlock My filters: userFilters key absent from extension IndexedDB.
+   The "paste once into Dashboard → My filters" step never landed. Selected
+   filter lists include the empty "user-filters" list name, but no @@ rules.
+2. outlook.cloud.microsoft storage-access grant: zen-sso-fix wrote
+   expireType=0 on 2026-09-08; Firefox overwrote
+   3rdPartyStorage^login.microsoftonline.com to expireType=2 at the
+   2026-09-10 failure (grant still within 90d window — not the direct
+   cause today, but proves permanent grants get replaced on use).
+
+Interpretation
+--------------
+Dark Reader pin alone is necessary but not sufficient for multi-day
+survival. The durable failure mode is re-poisoned outlook.cloud.microsoft
+(hints without tokens) after the session ages, plus missing uBlock
+exceptions. A reboot/recover clears poison temporarily; it grows back.
+
+Fix added 2026-09-10
+--------------------
+1. zen-sso-harden now WRITES uBlock userFilters into extension IDB (no paste)
+   and best-effort merges adminSettings into Zen distribution policies.json.
+2. zen-sso-guard detects half-auth Outlook origins, wipes them, re-pins
+   expireType=0 grants, and re-runs harden.
+3. zen-outlook runs guard automatically when Zen is quit before launch;
+   --recover does deep wipe + guard; --check reports state while Zen runs.
 
 If it returns
 -------------
-1. Confirm Dark Reader site list still excludes SSO hosts (popup → site toggle).
-2. Confirm uBlock My filters still has the @@ exceptions.
-3. zen-outlook --recover
-4. Append new evidence to this file; do not assume private windows are the fix.
+1. zen-outlook --check
+2. Quit Zen; zen-outlook --recover
+3. Confirm Dark Reader still excludes SSO hosts; uBlock My filters has @@ rules
+4. Append new evidence here.
 
 Experiment raw dumps: /tmp/outlook-sso-exp/

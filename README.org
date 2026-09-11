@@ -183,37 +183,44 @@ uBlock).
 
 *** Permanent harden
 
-1. Dark Reader stays off on Microsoft / Stanford / Duo auth hosts:
+1. Dark Reader stays off on Microsoft / Stanford / Duo auth hosts, and uBlock
+   My filters get the SSO allowlist (no manual paste):
 
 #+BEGIN_SRC sh
-zen-sso-harden           # writes disabledFor into Zen storage-sync (Zen must be quit)
+zen-sso-harden           # Zen must be quit
 #+END_SRC
 
-2. uBlock Origin allowlist (paste once): open the uBlock dashboard → *My
-   filters* → paste the contents of =zen/ublock-outlook-exceptions.txt= →
-   *Apply changes*. Those =@@||= rules tell uBlock not to treat the SSO /
-   Outlook document loads as something to block.
+2. Overnight poison on =outlook.cloud.microsoft= (identity hints, no MSAL
+   tokens) is cleared by the guard. =zen-outlook= runs this automatically when
+   Zen is not already open:
+
+#+BEGIN_SRC sh
+zen-sso-guard --check    # report only
+zen-sso-guard            # wipe half-auth origins + re-pin grants + harden
+#+END_SRC
 
 Also pinned in =zen/user.js= / =zen-sso-fix=: Bounce Tracking Protection off;
 cookie Allow + ETP-off + =3rdPartyStorage^https://login.microsoftonline.com=
-grants for OWA/AAD hosts.
+grants for OWA/AAD hosts (=expireType=0=; re-applied by the guard because
+Firefox sometimes overwrites them with time-limited grants).
 
 *** Recovery (if the loop returns)
 
 #+BEGIN_SRC sh
-zen-outlook --recover    # quit Zen, zen-sso-fix --deep, reopen mail (costs Duo)
-zen-sso-fix --deep      # same wipe without relaunch
+zen-outlook --check      # see poison / missing harden without quitting
+zen-outlook --recover    # quit Zen, deep wipe, guard+harden, reopen (costs Duo)
+zen-sso-fix --deep      # wipe only
 #+END_SRC
 
-Then confirm Dark Reader is still disabled on Outlook/login pages and that the
-uBlock My filters exceptions are still present.
+Then confirm Dark Reader still disables Outlook/login pages and that uBlock
+My filters contains the =@@||= rules from =zen/ublock-outlook-exceptions.txt=.
 
 *** Daily use
 
 Always open mail at the =/mail/= path, never the bare domain:
 
 #+BEGIN_SRC sh
-zen-outlook              # open https://outlook.office.com/mail/ in a normal tab
+zen-outlook              # guard (if Zen quit) + open https://outlook.office.com/mail/
 #+END_SRC
 
 After recovery, verify with a *second* cold tab. Do not disable cookies for

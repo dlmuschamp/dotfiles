@@ -9,9 +9,14 @@
 # extensions were disabled — while keeping AAD cookies. Brave never hit it
 # (no uBlock; Dark Reader present but Chromium auth path differs).
 #
-# This script pins Dark Reader to stay OFF on Microsoft / Stanford / Duo auth
-# hosts via Firefox storage-sync (survives restarts; syncs if enabled). It also
-# prints the uBlock allowlist to paste once into uBlock → Filters.
+# This script:
+#   1. Pins Dark Reader disabledFor on Microsoft / Stanford / Duo hosts
+#      (storage-sync; survives restarts).
+#   2. Writes uBlock My filters exceptions into extension IndexedDB (the paste
+#      step was never applied on this profile — confirmed 2026-09-10).
+#   3. Merges the same exceptions into Zen distribution policies.json when
+#      writable (survives profile resets; lost on Zen package upgrade until
+#      re-run).
 #
 # Zen must be fully closed (same lock rules as zen-sso-fix).
 #
@@ -21,6 +26,7 @@ set -euo pipefail
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 zen_home="$config_home/zen"
+filters_file="$HOME/dotfiles/zen/ublock-outlook-exceptions.txt"
 
 if pgrep -x zen-bin >/dev/null; then
   printf 'Zen is still running. Quit it completely, then re-run.\n' >&2
@@ -29,6 +35,11 @@ fi
 
 if [[ ! -f $zen_home/profiles.ini ]]; then
   printf 'No Zen profiles.ini under %s.\n' "$zen_home" >&2
+  exit 1
+fi
+
+if [[ ! -f $filters_file ]]; then
+  printf 'Missing filter file: %s\n' "$filters_file" >&2
   exit 1
 fi
 
@@ -103,18 +114,144 @@ for s in sites:
     print(f"  - {s}")
 PY
 
-filters="$HOME/dotfiles/zen/ublock-outlook-exceptions.txt"
+# Write uBlock userFilters into extension IndexedDB (Firefox structured clone string).
+python3 - "$profile" "$filters_file" <<'PY'
+import json, re, sqlite3, sys
+from pathlib import Path
+
+profile = Path(sys.argv[1])
+filters_text = Path(sys.argv[2]).read_text()
+# Keep comment lines; uBlock accepts ! comments in My filters.
+filters_text = filters_text.replace("\r\n", "\n").strip() + "\n"
+
+prefs = (profile / "prefs.js").read_text(errors="replace")
+m = re.search(r'user_pref\("extensions\.webextensions\.uuids", "(.+)"\);', prefs)
+if not m:
+    raise SystemExit("Could not resolve uBlock UUID from prefs.js")
+uuids = json.loads(m.group(1).encode("utf-8").decode("unicode_escape"))
+uuid = uuids.get("uBlock0@raymondhill.net")
+if not uuid:
+    raise SystemExit("uBlock0@raymondhill.net not in extensions.webextensions.uuids")
+
+def plus1_key(name: str) -> bytes:
+    # uBlock stores IDB keys as ASCII '0' + each char code + 1
+    return ("0" + "".join(chr(ord(c) + 1) for c in name)).encode("ascii")
+
+def sc_string(s: str) -> bytes:
+    # Reverse-engineered from uBlock's version string entry in this profile.
+    b = s.encode("utf-8")
+    n = len(b)
+    header = bytes([
+        0x18, 0x04, 0x03, 0x00, 0x01, 0x01,
+        0x44, 0xf1, 0xff,
+        n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, 0x80,
+        0x04, 0x00, 0xff, 0xff,
+    ])
+    return header + b + b"\x00\x00"
+
+key = plus1_key("userFilters")
+payload = sc_string(filters_text)
+
+candidates = [
+    profile / "storage" / "default" / f"moz-extension+++{uuid}^userContextId=4294967295",
+    profile / "storage" / "default" / f"moz-extension+++{uuid}",
+]
+wrote = 0
+for base in candidates:
+    if not base.is_dir():
+        continue
+    for db in base.glob("idb/*.sqlite"):
+        con = sqlite3.connect(str(db))
+        stores = {name: i for i, name in con.execute("SELECT id, name FROM object_store")}
+        # Prefer the real settings store; skip pure cache DBs.
+        store_id = None
+        for name in ("storage-local-data", "uBlock0CacheStorage"):
+            if name in stores:
+                store_id = stores[name]
+                if name == "storage-local-data":
+                    break
+        if store_id is None:
+            con.close()
+            continue
+        con.execute(
+            "DELETE FROM object_data WHERE object_store_id=? AND key=?",
+            (store_id, key),
+        )
+        con.execute(
+            """INSERT INTO object_data (object_store_id, key, index_data_values, file_ids, data)
+               VALUES (?, ?, NULL, NULL, ?)""",
+            (store_id, key, payload),
+        )
+        # Drop compiled net selfie so uBlock rebuilds filters on next start.
+        for selfie_name in (
+            "cache/selfie/staticNetFilteringEngine",
+            "cache/selfie/staticExtFilteringEngine",
+        ):
+            sk = plus1_key(selfie_name)
+            row = con.execute(
+                "SELECT file_ids FROM object_data WHERE object_store_id=? AND key=?",
+                (store_id, sk),
+            ).fetchone()
+            con.execute(
+                "DELETE FROM object_data WHERE object_store_id=? AND key=?",
+                (store_id, sk),
+            )
+            if row and row[0]:
+                # file_ids looks like ".55" — best-effort unlink
+                fid = str(row[0]).lstrip(".")
+                fpath = Path(str(db) + ".files") / fid
+                if fpath.is_file():
+                    fpath.unlink()
+        con.commit()
+        con.close()
+        wrote += 1
+        print(f"uBlock userFilters written → {db} (store_id={store_id})")
+
+if not wrote:
+    raise SystemExit(
+        "uBlock IndexedDB not found; open Zen once with uBlock enabled, quit, re-run."
+    )
+print(f"uBlock My filters: {len(filters_text.splitlines())} lines")
+PY
+
+# Merge into Zen distribution policies when possible (optional; needs write access).
+policies_path="/opt/zen-browser-bin/distribution/policies.json"
+python3 - "$policies_path" "$filters_file" <<'PY' || true
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+filters = Path(sys.argv[2]).read_text().replace("\r\n", "\n").strip() + "\n"
+if not path.exists():
+    print(f"Skip policies: {path} missing")
+    raise SystemExit(0)
+try:
+    data = json.loads(path.read_text())
+except Exception as e:
+    print(f"Skip policies: parse error: {e}")
+    raise SystemExit(0)
+policies = data.setdefault("policies", {})
+third = policies.setdefault("3rdparty", {}).setdefault("Extensions", {})
+ub = third.setdefault("uBlock0@raymondhill.net", {})
+admin = ub.setdefault("adminSettings", {})
+admin["userFilters"] = filters
+try:
+    path.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"Zen policies updated: {path}")
+except PermissionError:
+    print(f"Skip policies: no write access to {path} (optional; IDB write is enough)")
+PY
+
 cat <<EOF
 
 Done.
 
-Dark Reader will ignore Microsoft / Stanford / Duo auth hosts (via storage-sync).
-
-uBlock Origin — paste once (Dashboard → My filters), or import:
-  $filters
+Dark Reader ignores Microsoft / Stanford / Duo auth hosts.
+uBlock My filters now include:
+  $filters_file
 
 If the sign-out loop returns anyway:
-  zen-outlook --recover
+  zen-sso-guard          # wipe half-auth cloud.microsoft + re-pin grants
+  zen-outlook --recover  # full deep wipe (costs Duo)
 
 See: $HOME/dotfiles/zen/outlook-sso-findings.txt
 EOF

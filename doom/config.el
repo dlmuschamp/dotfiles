@@ -5,7 +5,7 @@
 ;; "14" Doom showed ~35 lines while nvim@14 showed ~41. Height 122
 ;; (~12.2pt) lands near ~40 lines so both editors match visually.
 (setq luciano/ui-font-family "BlexMono Nerd Font Mono"
-      luciano/ui-font-height 122) ; 12.2pt ≈ Alacritty 14 visually on this display
+      luciano/ui-font-height 144) ; 12.2pt ≈ Alacritty 14 visually on this display
 (setq doom-font (font-spec :family luciano/ui-font-family
                            :size (/ luciano/ui-font-height 10.0))
       doom-variable-pitch-font (font-spec :family "IBM Plex Sans"

@@ -1,0 +1,340 @@
+#!/bin/bash
+#
+# Pre-flight Outlook SSO guard for Zen.
+#
+# Why this exists (2026-09-10):
+#   Dark Reader disabledFor survives restarts, but the logout loop still
+#   returns after ~a day. Live evidence:
+#     outlook.office.com  → healthy (olk-isauthed + full MSAL cache)
+#     outlook.cloud.microsoft → half-auth (login_hint / authTimings, msal.version
+#       only). Opening mail redirects there → silent MSAL fails → AAD logout.
+#   Firefox also overwrote the never-expire storage-access grant on
+#   outlook.cloud.microsoft with a time-limited one during the failed boot.
+#   uBlock My filters exceptions were never actually present in the profile.
+#
+# This script (Zen must be quit):
+#   1. Wipes half-auth Outlook origins (hints without MSAL tokens)
+#   2. Re-pins cookie / ETP / storage-access grants to expireType=0
+#   3. Re-runs Dark Reader + uBlock harden
+#
+# Usage: zen-sso-guard
+#        zen-sso-guard --check   # report only, change nothing
+
+set -euo pipefail
+
+check_only=0
+case "${1:-}" in
+  --check|-n) check_only=1 ;;
+  '') ;;
+  --help|-h)
+    cat <<'EOF'
+Usage: zen-sso-guard [--check]
+
+  (default)  Wipe half-auth Outlook origins, re-pin grants, re-run harden.
+  --check    Report poison / grant / harden state only (Zen may be running).
+EOF
+    exit 0
+    ;;
+  *) printf 'Usage: %s [--check]\n' "${0##*/}" >&2; exit 2 ;;
+esac
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+zen_home="$config_home/zen"
+
+if [[ ! -f $zen_home/profiles.ini ]]; then
+  printf 'No Zen profiles.ini under %s.\n' "$zen_home" >&2
+  exit 1
+fi
+
+if (( ! check_only )) && pgrep -x zen-bin >/dev/null; then
+  printf 'Zen is still running. Quit it completely, then re-run.\n' >&2
+  exit 1
+fi
+
+profile_rel=$(python3 - "$zen_home/profiles.ini" <<'PY'
+import configparser, sys
+cp = configparser.ConfigParser()
+cp.read(sys.argv[1])
+install = next((cp[s]["Default"] for s in cp.sections()
+                if s.startswith("Install") and cp[s].get("Default")), None)
+if install:
+    print(install); raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Default") == "1":
+        print(cp[s]["Path"]); raise SystemExit
+for s in cp.sections():
+    if s.startswith("Profile") and cp[s].get("Path"):
+        print(cp[s]["Path"]); raise SystemExit
+raise SystemExit("no profile found")
+PY
+)
+
+profile="$zen_home/$profile_rel"
+printf 'Profile: %s\n\n' "$profile"
+
+python3 - "$profile" "$check_only" <<'PY'
+import json, os, shutil, sqlite3, sys, time
+from pathlib import Path
+
+profile = Path(sys.argv[1])
+check_only = sys.argv[2] == "1"
+storage_root = profile / "storage" / "default"
+hosts = [
+    "outlook.office.com",
+    "outlook.office365.com",
+    "outlook.cloud.microsoft",
+    "sdf.outlook.cloud.microsoft",
+]
+
+def copy_db(src: Path, dst: Path) -> sqlite3.Connection:
+    shutil.copy2(src, dst)
+    wal, shm = Path(str(src) + "-wal"), Path(str(src) + "-shm")
+    if wal.exists():
+        shutil.copy2(wal, Path(str(dst) + "-wal"))
+    if shm.exists():
+        shutil.copy2(shm, Path(str(dst) + "-shm"))
+    con = sqlite3.connect(str(dst))
+    try:
+        con.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except sqlite3.Error:
+        pass
+    return con
+
+def read_ls(host: str):
+    db = storage_root / f"https+++{host}" / "ls" / "data.sqlite"
+    if not db.exists():
+        return None
+    tmp = Path(f"/tmp/zen-sso-guard-{host.replace('.','_')}.sqlite")
+    con = copy_db(db, tmp)
+    try:
+        rows = {k: v for k, v in con.execute("SELECT key, value FROM data")}
+    except sqlite3.Error as e:
+        return {"error": str(e)}
+    def as_text(v):
+        if isinstance(v, (bytes, bytearray)):
+            return v.decode("utf-8", "replace")
+        return str(v)
+    keys = {as_text(k): as_text(v) for k, v in rows.items()}
+    msal = [k for k in keys if k.startswith("msal.") or k.startswith("msal")]
+    # msal.version alone does not count as a session
+    tokenish = [k for k in msal if k != "msal.version"]
+    return {
+        "host": host,
+        "keys": len(keys),
+        "msal_total": len(msal),
+        "msal_tokens": len(tokenish),
+        "isauthed": keys.get("olk-isauthed"),
+        "login_hint": "olk-login_hint" in keys or any(k.startswith("olk-login_hint") for k in keys),
+        "authTimings": "olk-authTimings" in keys,
+        "bootFailureCount": keys.get("olk-bootFailureCount"),
+        "poisoned": len(tokenish) == 0 and (
+            "olk-login_hint" in keys
+            or any(k.startswith("olk-login_hint") for k in keys)
+            or "olk-authTimings" in keys
+        ),
+    }
+
+print("=== Outlook localStorage ===")
+poisoned = []
+for host in hosts:
+    st = read_ls(host)
+    if st is None:
+        print(f"  {host}: (no storage)")
+        continue
+    if "error" in st:
+        print(f"  {host}: read error: {st['error']}")
+        continue
+    mark = "POISON" if st["poisoned"] else ("ok" if st["msal_tokens"] else "empty")
+    print(
+        f"  {host}: {mark}  isauthed={st['isauthed']!r}  "
+        f"msal_tokens={st['msal_tokens']}  hint={st['login_hint']}  "
+        f"authTimings={st['authTimings']}"
+    )
+    if st["poisoned"]:
+        poisoned.append(host)
+
+# Permissions: permanent grants must stay expireType=0 on cloud.microsoft
+perms_path = profile / "permissions.sqlite"
+print("\n=== storage-access grants (outlook → login.microsoftonline.com) ===")
+soft = []
+if perms_path.exists():
+    tmp = Path("/tmp/zen-sso-guard-perms.sqlite")
+    con = copy_db(perms_path, tmp)
+    rows = con.execute(
+        """
+        SELECT origin, type, permission, expireType, expireTime
+        FROM moz_perms
+        WHERE origin LIKE '%outlook%' OR origin LIKE '%cloud.microsoft%'
+           OR origin LIKE '%office.com%'
+        ORDER BY origin, type
+        """
+    ).fetchall()
+    for origin, typ, perm, et, ex in rows:
+        if "3rdPartyStorage^https://login.microsoftonline.com" in typ or typ in (
+            "storageAccessAPI",
+            "cookie",
+            "trackingprotection",
+        ):
+            soft_flag = et != 0 and typ.startswith("3rdPartyStorage")
+            if soft_flag:
+                soft.append(origin)
+            print(f"  {origin} | {typ} | expireType={et}{'  << SOFT' if soft_flag else ''}")
+else:
+    print("  (no permissions.sqlite)")
+
+# Dark Reader
+print("\n=== Dark Reader disabledFor ===")
+sync = profile / "storage-sync-v2.sqlite"
+need = {
+    "outlook.office.com",
+    "outlook.cloud.microsoft",
+    "login.microsoftonline.com",
+    "login.stanford.edu",
+    "duosecurity.com",
+}
+if sync.exists():
+    tmp = Path("/tmp/zen-sso-guard-sync.sqlite")
+    con = copy_db(sync, tmp)
+    row = con.execute(
+        "SELECT data FROM storage_sync_data WHERE ext_id='addon@darkreader.org'"
+    ).fetchone()
+    if not row:
+        print("  MISSING Dark Reader sync row")
+        dr_ok = False
+        missing = sorted(need)
+    else:
+        data = json.loads(row[0])
+        disabled = set(data.get("disabledFor") or [])
+        missing = sorted(need - disabled)
+        dr_ok = not missing
+        print(f"  {len(disabled)} hosts excluded; critical missing: {missing or 'none'}")
+else:
+    print("  no storage-sync-v2.sqlite")
+    dr_ok = False
+    missing = sorted(need)
+
+# uBlock userFilters presence (char+1 key encoding in extension IDB)
+print("\n=== uBlock My filters (userFilters) ===")
+ub_uuid = None
+prefs = (profile / "prefs.js").read_text(errors="replace")
+import re
+m = re.search(r'user_pref\("extensions\.webextensions\.uuids", "(.+)"\);', prefs)
+if m:
+    raw = m.group(1).encode("utf-8").decode("unicode_escape")
+    try:
+        ub_uuid = json.loads(raw).get("uBlock0@raymondhill.net")
+    except json.JSONDecodeError:
+        ub_uuid = None
+
+def ub_has_filters(uuid: str) -> bool:
+    if not uuid:
+        return False
+    needle = b"@@||login.microsoftonline"
+    base = storage_root / f"moz-extension+++{uuid}^userContextId=4294967295"
+    if not base.exists():
+        base = storage_root / f"moz-extension+++{uuid}"
+    for db in base.glob("idb/*.sqlite"):
+        tmp = Path("/tmp/zen-sso-guard-ub.sqlite")
+        con = copy_db(db, tmp)
+        for (data,) in con.execute("SELECT data FROM object_data"):
+            if isinstance(data, (bytes, bytearray)) and needle in data:
+                return True
+        # also scan external file blobs
+        files = Path(str(db) + ".files")
+        if files.is_dir():
+            for p in files.iterdir():
+                if p.is_file() and needle in p.read_bytes():
+                    return True
+    return False
+
+ub_ok = ub_has_filters(ub_uuid) if ub_uuid else False
+print(f"  uuid={ub_uuid or 'unknown'}  outlook exceptions present={ub_ok}")
+
+print("\n=== summary ===")
+print(f"  poisoned origins: {poisoned or 'none'}")
+print(f"  soft (expiring) 3rdPartyStorage grants: {soft or 'none'}")
+print(f"  Dark Reader critical hosts: {'ok' if dr_ok else 'MISSING ' + str(missing)}")
+print(f"  uBlock exceptions: {'ok' if ub_ok else 'MISSING'}")
+
+if check_only:
+    unhealthy = bool(poisoned) or not dr_ok or not ub_ok or bool(soft)
+    sys.exit(1 if unhealthy else 0)
+
+# --- mutate ---
+removed = 0
+for host in poisoned:
+    for dirpath in storage_root.glob(f"*{host}*"):
+        if dirpath.is_dir():
+            shutil.rmtree(dirpath)
+            removed += 1
+            print(f"Wiped storage: {dirpath.name}")
+    # storage.sqlite origin rows
+    sdb = profile / "storage.sqlite"
+    if sdb.exists():
+        con = sqlite3.connect(str(sdb))
+        con.execute("DELETE FROM origin WHERE origin LIKE ?", (f"%{host}%",))
+        con.commit()
+print(f"Half-auth origins cleared: {removed} dirs")
+
+# Re-pin grants (same set as zen-sso-fix)
+allow_origins = [
+    "https://login.microsoftonline.com",
+    "https://login.live.com",
+    "https://login.windows.net",
+    "https://outlook.office.com",
+    "https://outlook.office365.com",
+    "https://outlook.cloud.microsoft",
+    "https://cloud.microsoft",
+    "https://office.com",
+    "https://www.office.com",
+    "https://login.stanford.edu",
+    "https://idp.stanford.edu",
+]
+storage_access_first_parties = [
+    "https://outlook.office.com",
+    "https://outlook.office365.com",
+    "https://outlook.cloud.microsoft",
+    "https://cloud.microsoft",
+    "https://office.com",
+    "https://www.office.com",
+    "https://m365.cloud.microsoft",
+]
+now_ms = int(time.time() * 1000)
+perms_db = profile / "permissions.sqlite"
+con = sqlite3.connect(str(perms_db))
+con.execute(
+    """CREATE TABLE IF NOT EXISTS moz_perms (
+        id INTEGER PRIMARY KEY, origin TEXT, type TEXT, permission INTEGER,
+        expireType INTEGER, expireTime INTEGER, modificationTime INTEGER)"""
+)
+
+def upsert(origin, typ, permission):
+    con.execute("DELETE FROM moz_perms WHERE origin=? AND type=?", (origin, typ))
+    con.execute(
+        """INSERT INTO moz_perms
+           (origin, type, permission, expireType, expireTime, modificationTime)
+           VALUES (?, ?, ?, 0, 0, ?)""",
+        (origin, typ, permission, now_ms),
+    )
+
+for origin in allow_origins:
+    upsert(origin, "cookie", 1)
+    upsert(origin, "trackingprotection", 2)
+for origin in storage_access_first_parties:
+    upsert(origin, "3rdPartyStorage^https://login.microsoftonline.com", 1)
+    upsert(origin, "storageAccessAPI", 1)
+con.commit()
+print(
+    f"Re-pinned grants: {len(allow_origins)} cookie/ETP + "
+    f"{len(storage_access_first_parties)} storage-access (expireType=0)"
+)
+PY
+
+# Always re-apply extension harden (Dark Reader + uBlock filters in IDB / policies)
+zen-sso-harden
+
+cat <<'EOF'
+
+Guard done. Start Zen and open mail with: zen-outlook
+After mail loads, open a second cold tab to the same URL.
+EOF

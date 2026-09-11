@@ -2,7 +2,8 @@
 #
 # Open Outlook Web without tripping the sign-out loop.
 #
-# Permanent harden (Dark Reader SSO exclusions): zen-sso-harden
+# Permanent harden: zen-sso-harden (Dark Reader + uBlock exceptions)
+# Overnight guard:  zen-sso-guard  (wipes half-auth outlook.cloud.microsoft)
 # Findings: ~/dotfiles/zen/outlook-sso-findings.txt
 #
 # Always use the /mail/ path. Typing the bare outlook.office.com domain
@@ -10,8 +11,9 @@
 # the normal profile, reliably triggers logoutRedirect().
 #
 # Usage:
-#   zen-outlook           open mail in a new normal tab (or launch Zen)
-#   zen-outlook --recover quit Zen, clear Outlook site data, reopen mail
+#   zen-outlook           open mail (runs zen-sso-guard first if Zen is quit)
+#   zen-outlook --recover quit Zen, deep wipe, harden, reopen mail
+#   zen-outlook --check   report poison / harden state only
 
 set -euo pipefail
 
@@ -22,42 +24,57 @@ zen_running() {
   pgrep -x zen-bin >/dev/null
 }
 
-open_normal() {
+quit_zen() {
   if zen_running; then
-    exec "$zen_bin" --new-tab "$url"
-  fi
-  exec "$zen_bin" "$url"
-}
-
-recover() {
-  if zen_running; then
-    printf 'Quitting Zen to clear Outlook site data...\n'
+    printf 'Quitting Zen...\n'
     pkill -TERM -x zen-bin || true
     for _ in $(seq 1 30); do
       zen_running || break
       sleep 0.5
     done
     if zen_running; then
-      printf 'Zen did not quit. Close it manually, then run: zen-sso-fix\n' >&2
+      printf 'Zen did not quit. Close it manually, then re-run.\n' >&2
       exit 1
     fi
   fi
-  # Shallow Outlook-only clears can leave a half-valid AAD session that OWA
-  # rejects after Stanford login. The fix that worked 2026-09-07 was --deep
-  # (clears Microsoft cookies too; costs one Duo).
+}
+
+open_normal() {
+  if zen_running; then
+    # Cannot safely mutate profile DBs while Zen holds locks. Warn if poisoned.
+    if ! zen-sso-guard --check >/tmp/zen-sso-guard-check.txt 2>&1; then
+      printf 'Outlook SSO looks unhealthy (half-auth cloud.microsoft and/or missing harden).\n' >&2
+      printf 'Quit Zen and run: zen-outlook --recover\n' >&2
+      printf '(details in /tmp/zen-sso-guard-check.txt)\n' >&2
+    fi
+    exec "$zen_bin" --new-tab "$url"
+  fi
+  # Zen is quit: clear overnight poison + re-pin grants before launch.
+  zen-sso-guard
+  exec "$zen_bin" "$url"
+}
+
+recover() {
+  quit_zen
+  # Deep wipe (Microsoft/AAD cookies too) then guard/harden.
   zen-sso-fix --deep
+  zen-sso-guard
   exec "$zen_bin" "$url"
 }
 
 case "${1:-}" in
   --recover|-r) recover ;;
+  --check|-n)
+    zen-sso-guard --check
+    ;;
   --help|-h)
     cat <<'EOF'
-Usage: zen-outlook [--recover]
+Usage: zen-outlook [--recover|--check]
 
-  (no args)   Open https://outlook.office.com/mail/ in a new normal tab, or launch Zen.
-  --recover   Quit Zen, run zen-sso-fix --deep, and reopen mail. Use when you
-              see "You're signed out of your account". Costs one Duo.
+  (no args)   If Zen is quit: run zen-sso-guard, then open mail.
+              If Zen is running: open a new tab (warns if guard --check fails).
+  --recover   Quit Zen, zen-sso-fix --deep, zen-sso-guard, reopen mail. Costs Duo.
+  --check     Report poison / Dark Reader / uBlock / grant state only.
 EOF
     exit 0
     ;;
@@ -65,7 +82,7 @@ EOF
     open_normal
     ;;
   *)
-    printf 'Usage: %s [--recover]\n' "${0##*/}" >&2
+    printf 'Usage: %s [--recover|--check]\n' "${0##*/}" >&2
     exit 2
     ;;
 esac
