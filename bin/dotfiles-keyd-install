@@ -23,4 +23,5 @@ sudo systemctl enable --now keyd.service
 sudo keyd reload
 
 printf 'Installed %s and enabled keyd.\n' "$dst"
-printf 'Press Copilot: it should act as Ctrl. Debug with: sudo keyd monitor\n'
+printf 'Copilot → Ctrl; Win+hjkl → arrows (Caps+Win+hjkl → Super+arrows).\n'
+printf 'Debug with: sudo keyd monitor\n'

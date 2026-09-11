@@ -114,20 +114,26 @@ systemctl --user is-enabled mako          # should be masked
 pkill -f 'quickshell.*omarchy'              # autostart relaunches omarchy-shell
 #+END_SRC
 
-** Copilot key → Ctrl (=keyd/=)
+** Keyboard remaps (=keyd/=)
 
-The Yoga's Copilot key is not a single keycode --- firmware sends
-=LeftShift + LeftMeta + F23=. Shortcut UIs often display that as
-Super+Shift and hide F23. =keyd/default.conf= remaps the full chord to
-Ctrl via =keyd= (kernel-level, works in Hyprland and TTY). Caps Lock
-stays =caps:super= in =hypr/input.lua= (separate from Copilot).
+=keyd/default.conf= applies kernel-level remaps (Hyprland and TTY):
+
+| Key | Effect |
+|-----+--------|
+| Yoga Copilot | Ctrl (firmware chord =LeftShift + LeftMeta + F23=) |
+| Physical Win | Hold: nav layer --- =h/j/k/l= → arrows |
+| Caps Lock | Super via =caps:super= in =hypr/input.lua= (not keyd) |
+
+Window focus/move stays on Omarchy's =Super + arrows=. With Caps as Super
+and Win as the nav layer, =Caps + Win + hjkl= is the home-row form of
+=Super + arrows=. =Win + hjkl= alone emits bare arrows.
 
 #+BEGIN_SRC sh
 dotfiles-keyd-install    # install keyd, copy config to /etc/keyd, enable service
-sudo keyd monitor        # press Copilot to confirm the three-key chord
+sudo keyd monitor        # press Copilot / Win+hjkl to confirm
 #+END_SRC
 
-Do not drop =f23= from the chord unless =keyd monitor= proves the
+Do not drop =f23= from the Copilot chord unless =keyd monitor= proves the
 hardware omits it --- a two-key =Shift+Meta= remap would also eat real
 =Super + Shift + letter= binds.
 
