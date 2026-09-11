@@ -192,17 +192,26 @@ zen-sso-harden           # Zen must be quit
 
 2. Overnight poison on =outlook.cloud.microsoft= (identity hints, no MSAL
    tokens) is cleared by the guard. =zen-outlook= runs this automatically when
-   Zen is not already open:
+   Zen is not already open; the =zen= wrapper (app-menu / =zen.desktop=) does
+   the same on every cold start after reboot:
 
 #+BEGIN_SRC sh
 zen-sso-guard --check    # report only
 zen-sso-guard            # wipe half-auth origins + re-pin grants + harden
+zen                      # cold-start: guard then real zen-bin
 #+END_SRC
 
 Also pinned in =zen/user.js= / =zen-sso-fix=: Bounce Tracking Protection off;
+=browser.contentblocking.category=custom= + =network.cookie.cookieBehavior=0=
+(accept all — stops Total Cookie Protection from partitioning Microsoft's
+multi-host auth cookies; the Brave gap; category must be custom or Standard
+re-applies behavior 5 after =user.js=);
 cookie Allow + ETP-off + =3rdPartyStorage^https://login.microsoftonline.com=
 grants for OWA/AAD hosts (=expireType=0=; re-applied by the guard because
 Firefox sometimes overwrites them with time-limited grants).
+
+=bootstrap= also links =zen/zen.desktop= into =~/.local/share/applications/=
+so the app menu uses the wrapper instead of =/opt/zen-browser-bin/zen-bin=.
 
 *** Recovery (if the loop returns)
 
@@ -217,14 +226,18 @@ My filters contains the =@@||= rules from =zen/ublock-outlook-exceptions.txt=.
 
 *** Daily use
 
-Always open mail at the =/mail/= path, never the bare domain:
+Always open mail via =zen-outlook= (lands on =outlook.cloud.microsoft/mail/=).
+Do not mix =outlook.office.com= and =cloud.microsoft= tabs during login --- MSAL
+PKCE is per-origin. Prefer =zen-outlook= / the app-menu Zen wrapper so the SSO
+guard runs on cold start.
 
 #+BEGIN_SRC sh
-zen-outlook              # guard (if Zen quit) + open https://outlook.office.com/mail/
+zen-outlook              # guard (if Zen quit) + open outlook.cloud.microsoft/mail/
 #+END_SRC
 
-After recovery, verify with a *second* cold tab. Do not disable cookies for
-Outlook --- that breaks SSO entirely.
+After recovery, verify with a *second* cold tab. If the signed-out loop returns,
+=zen-outlook --recover= also clears session restore (stale =#code= / logout tabs
+were the private-vs-normal smoking gun).
 
 * Maintenance (=bin/dotfiles-update=)
 

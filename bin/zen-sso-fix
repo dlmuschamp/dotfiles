@@ -17,10 +17,11 @@
 # ETP exceptions so Total Cookie Protection does not partition
 # login.microsoftonline.com away from OWA. AAD cookies are kept.
 #
-# Important: keeping AAD is not always enough. On 2026-09-07 the Outlook-only
-# clear still failed (Stanford login → immediate sign-out, no Duo). --deep,
-# which also clears Microsoft/AAD cookies and related storage, then matched the
-# working fresh-profile path (full SSO + Duo → stay signed in across tabs).
+# Important: keeping AAD alone is not enough. Stale Duo "remember device" and
+# Stanford IdP cookies plus ESTSSSOTILES recreate a half-SSO path (Duo flash →
+# immediate sign-out) in the normal profile while private windows work. --deep
+# clears Microsoft + Duo + login.stanford.edu / idp.stanford.edu, then matches
+# the working private-window path (full interactive SSO).
 # Prefer --deep / zen-outlook --recover when the sign-out loop is active.
 #
 # Zen must be fully closed, since it holds a write lock on cookies.sqlite.
@@ -55,6 +56,21 @@ outlook_storage=(
   sdf.outlook.cloud.microsoft
 )
 
+# --deep also clears IdP / Duo site data so "remembered device" cannot short-
+# circuit into the broken MSAL path.
+deep_storage=(
+  login.stanford.edu
+  idp.stanford.edu
+  duosecurity.com
+  api-531b0865.duosecurity.com
+  login.microsoftonline.com
+  login.microsoft.com
+  office.com
+  www.office.com
+  cloud.microsoft
+  m365.cloud.microsoft
+)
+
 # Origins that need durable cookie Allow + ETP off + storage-access grants.
 allow_origins=(
   https://login.microsoftonline.com
@@ -82,7 +98,11 @@ storage_access_first_parties=(
   https://m365.cloud.microsoft
 )
 
-# --deep only. Widened to every Microsoft origin, which does cost a re-login.
+# --deep only. Widened to every Microsoft origin PLUS Duo remember-device and
+# Stanford IdP cookies. Keeping those used to leave a half-SSO path: brief Duo
+# flash → ESTSAUTHPERSISTENT + SSOTILES → immediate "You're signed out" in the
+# normal profile, while private (empty jar) worked. Full wipe costs one complete
+# Stanford+Duo login and matches the working private-window path.
 deep_domains=(
   microsoftonline.com
   cloud.microsoft
@@ -91,6 +111,9 @@ deep_domains=(
   outlook.com
   live.com
   windows.net
+  duosecurity.com
+  login.stanford.edu
+  idp.stanford.edu
 )
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -170,6 +193,13 @@ sqlite3 "$profile/cookies.sqlite" "DELETE FROM moz_cookies WHERE $pred;"
 after=$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies;")
 printf 'Cookies removed: %s\n' "$(( before - after ))"
 
+# Microsoft sets these during logoutRedirect(); while present (=1) they interrupt
+# SSO on the next sign-in and recreate the "You're signed out" loop.
+tiles=$(sqlite3 "$profile/cookies.sqlite" \
+  "DELETE FROM moz_cookies WHERE name IN ('ESTSSSOTILES','AADSSOTILES','SSOCOOKIEPULLED');
+   SELECT changes();")
+printf 'SSO-interrupt cookies removed: %s (ESTSSSOTILES/AADSSOTILES/SSOCOOKIEPULLED)\n' "$tiles"
+
 printf 'SSO cookies kept: %s AAD, %s Stanford, %s Duo\n' \
   "$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies WHERE host LIKE '%microsoftonline.com';")" \
   "$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies WHERE host LIKE '%stanford.edu';")" \
@@ -244,7 +274,32 @@ if [[ -d $cache_dir ]]; then
 fi
 
 if (( deep )); then
-  clear_storage_for deep_domains
+  clear_storage_for deep_storage
+
+  # Session restore can replay tabs with one-time OAuth #code= fragments and
+  # oauth2/logout / owa logoff.aspx URLs, which immediately burns the new login
+  # (private windows work because they have no session restore). Clear active
+  # session files; leave zen-sessions-backup/ archives alone.
+  sess_backup="$profile/.sso-session-backup.$(date +%Y%m%d%H%M%S)"
+  mkdir -p "$sess_backup"
+  for f in sessionstore.jsonlz4 zen-sessions.jsonlz4 sessionCheckpoints.json; do
+    if [[ -f $profile/$f ]]; then
+      mv -- "$profile/$f" "$sess_backup/"
+    fi
+  done
+  if [[ -d $profile/sessionstore-backups ]]; then
+    find "$profile/sessionstore-backups" -maxdepth 1 -type f \( -name '*.jsonlz4' -o -name '*.baklz4' \) \
+      -exec mv -t "$sess_backup/" {} +
+  fi
+  # Zen keeps a "clean/recovery" pair that can resurrect the bad session.
+  if [[ -d $profile/zen-sessions-backup ]]; then
+    for f in clean.jsonlz4 recovery.baklz4 recovery.jsonlz4; do
+      if [[ -f $profile/zen-sessions-backup/$f ]]; then
+        mv -- "$profile/zen-sessions-backup/$f" "$sess_backup/"
+      fi
+    done
+  fi
+  printf 'Session restore cleared (stale OAuth/logout tabs) → %s\n' "$sess_backup"
 fi
 
 cat <<'EOF'

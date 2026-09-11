@@ -207,6 +207,10 @@ PY
 
 install_zen_prefs
 
+# Override the package zen.desktop so app-menu / xdg launches go through
+# ~/.local/bin/zen (cold-start SSO guard) instead of /opt/.../zen-bin.
+link_path "$repo_dir/zen/zen.desktop" "$data_home/applications/zen.desktop"
+
 for config in alacritty doom fontconfig gtk-3.0 gtk-4.0 hypr nvim omarchy sioyek tmux uwsm; do
   link_path "$repo_dir/$config" "$config_home/$config"
 done

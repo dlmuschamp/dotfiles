@@ -1,14 +1,17 @@
 Outlook Web SSO logout loop — Zen findings
 ==========================================
-Last updated: 2026-09-10 (overnight regression diagnosed; guard added)
+Last updated: 2026-09-11 (reboot persistence: cookieBehavior=0 + cold-start wrapper;
+            uBlock update_refcount harden fix)
 Prior work: agent chats 000ff096-ece2-4edc-bece-2839f6de4b73,
             88a64113-e237-4a4d-8ec5-cba4059fbdc7,
             a9e3c010-6a45-4c69-9927-1eacbf5907d7
-Tools:      ~/dotfiles/bin/zen-outlook
+Tools:      ~/dotfiles/bin/zen              ← cold-start SSO guard wrapper
+            ~/dotfiles/bin/zen-outlook
             ~/dotfiles/bin/zen-sso-fix
             ~/dotfiles/bin/zen-sso-harden   ← Dark Reader + uBlock My filters
             ~/dotfiles/bin/zen-sso-guard    ← wipe half-auth cloud.microsoft
             ~/dotfiles/zen/ublock-outlook-exceptions.txt
+            ~/dotfiles/zen/zen.desktop      ← app-menu → wrapper
 Prefs:      ~/dotfiles/zen/user.js
 Docs:       ~/dotfiles/README.org
 
@@ -129,8 +132,12 @@ Regression checks
 [x] Second cold tab stays signed in
 [x] outlook.cloud.microsoft also has MSAL + isauthed after navigation
 [x] Failed overnight (2026-09-09 ~17:03 and 2026-09-10 ~17:41) — see below
-[ ] Healthy after guard+uBlock write + next cold start
-[ ] Still healthy after another overnight
+[x] Harden stuck after uBlock update_refcount fix (2026-09-11): DR=16, uBlock=True
+[x] cookieBehavior=0 + contentblocking.category=custom flushed to prefs.js
+[x] Cold-start wrapper + local zen.desktop override installed
+[x] User: Duo + mail stays open after session-restore clear (2026-09-11 ~11:15;
+    cloud.microsoft isauthed=1, 19 MSAL tokens; extensions restored)
+[ ] User: reboot; open Zen from app menu; mail without private tab
 
 ================================================================
 OVERNIGHT REGRESSION (2026-09-10) — why "fix didn't stick"
@@ -191,3 +198,101 @@ If it returns
 4. Append new evidence here.
 
 Experiment raw dumps: /tmp/outlook-sso-exp/
+
+================================================================
+REBOOT PERSISTENCE (2026-09-11) — not Duo; local Firefox + host migration
+================================================================
+
+User report: after all prior fixes, reboot still forced private-tab Outlook
+login ("You're signed out" on normal tabs). Brave never had this.
+
+Online corroboration
+--------------------
+- Same Firefox/fork logout loop is widespread (Microsoft Q&A Outlook Web
+  "Logging you out"; r/firefox "Solved - Outlook / M365 auto sign out" —
+  ETP Custom with Cookies unchecked).
+- Zen GitHub: Total Cookie Protection / Strict ETP linked to mass logouts
+  (#10365); Outlook ETP exclusions alone often insufficient (#13920).
+- Stanford UIT docs cover Entra device-compliance prefs on managed
+  macOS/Windows browsers — not this Linux localStorage poison path.
+- Duo "Remember me" cookie breakage causes *extra MFA prompts*, not the
+  post-Duo AAD "You're signed out" page. Our failure is still post-Duo MSAL
+  on the Outlook origin (unchanged causal model above).
+
+Why reboot revived the bug
+--------------------------
+1. App-menu / reboot launches used /opt/.../zen-bin directly → skipped
+   zen-sso-guard → half-auth outlook.cloud.microsoft survived.
+2. uBlock My filters write crashed on Firefox IndexedDB triggers
+   (`update_refcount` missing in stock sqlite3) → exceptions never stuck.
+3. Dark Reader disabledFor was wiped (0 hosts) while Zen was running /
+   syncing — harden only re-applied when guard actually ran.
+4. TCP (cookieBehavior=5) still partitioned Microsoft's multi-host cookie
+   chain; Brave does not.
+
+Fix applied 2026-09-11
+----------------------
+1. `zen/user.js`: `browser.contentblocking.category=custom` +
+   `network.cookie.cookieBehavior` (+ pbmode) = 0
+   (accept all — same as ETP Custom with Cookies off). Category must be
+   custom: Standard silently re-applies behavior 5 after user.js.
+2. `bin/zen` cold-start wrapper: if no zen-bin process → zen-sso-guard,
+   then exec real binary. Desktop override: `zen/zen.desktop` →
+   `~/.local/share/applications/zen.desktop` (bootstrap links it).
+3. `zen-sso-harden`: stub `update_refcount` so uBlock userFilters + selfie
+   DELETE works; confirmed present=True after quit.
+4. `zen-sso-guard --check` no longer mutates / re-runs harden.
+
+Live state after recover+harden (2026-09-11 ~10:58):
+  poisoned=none, soft grants=none, Dark Reader 16 hosts, uBlock exceptions=ok
+
+User verification still required
+--------------------------------
+1. Open Zen via app menu (wrapper) or `zen` / `zen-outlook`.
+2. Sign into https://outlook.cloud.microsoft/mail/ once (Duo).
+   Close any other Outlook/office.com tabs first — one host only.
+3. Second cold normal tab stays signed in.
+4. Reboot; open Zen from the app menu (not a private window); mail should
+   not require private-tab workaround.
+
+================================================================
+2026-09-11 ~11:12 — private works, normal fails after full Duo
+================================================================
+
+A/B with extensions aside + cookieBehavior=0 + nuclear Microsoft/Duo/
+Stanford-login wipe: private still works; normal still hits signed-out
+after approving Duo.
+
+Session store smoking gun (recovery.jsonlz4 / zen-sessions):
+  - outlook.*/mail/#code=<one-time auth code>
+  - login.microsoftonline.com/.../oauth2/v2.0/logout
+  - outlook.office365.com/owa/auth/logoff.aspx
+  - login.stanford.edu/.../Logout
+
+Normal profile was keeping (and Zen was restoring) tabs that replay stale
+OAuth codes and logout URLs. Auth codes are single-use; MSAL PKCE
+verifiers live in sessionStorage per origin — starting on office.com while
+landing on cloud.microsoft also burns the exchange. Private windows have
+no session restore and stay on one clean host.
+
+Additional fix:
+  - zen-sso-fix --deep clears active session restore files
+  - zen-outlook URL → https://outlook.cloud.microsoft/mail/
+  - Cleared zen-sessions.jsonlz4 + sessionstore-backups for this attempt
+
+After reboot test:
+  1. Open Zen from app menu (uses zen wrapper / guard)
+  2. Open mail via zen-outlook OR https://outlook.cloud.microsoft/mail/
+  3. Should stay signed in without private tab
+  4. If signed out: zen-outlook --check then zen-outlook --recover
+
+================================================================
+2026-09-11 ~11:21 — reboot persistence CONFIRMED
+================================================================
+
+Boot 11:18. New normal Zen instance: Outlook stayed signed in — no login,
+no private-tab workaround. zen-outlook --check: cloud.microsoft isauthed,
+19 MSAL tokens, no poisoned origins, Dark Reader + uBlock harden OK.
+
+Root cause (final): session restore replaying burned #code= auth URLs +
+logout tabs. Not Duo. Not "Zen can't do Outlook."

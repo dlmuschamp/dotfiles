@@ -162,6 +162,35 @@ for base in candidates:
         continue
     for db in base.glob("idb/*.sqlite"):
         con = sqlite3.connect(str(db))
+        # Firefox IndexedDB triggers call update_refcount(old, new) when
+        # object_data.file_ids is non-NULL (e.g. deleting selfie blobs). That
+        # function is only registered inside Firefox — stub it so DELETE works
+        # from stock sqlite3.
+        def update_refcount(old_ids, new_ids):
+            def parse(ids):
+                if ids is None:
+                    return []
+                return [int(p) for p in str(ids).split(".") if p]
+
+            for fid in parse(old_ids):
+                con.execute(
+                    "UPDATE file SET refcount = refcount - 1 WHERE id = ?", (fid,)
+                )
+            for fid in parse(new_ids):
+                row = con.execute(
+                    "SELECT refcount FROM file WHERE id = ?", (fid,)
+                ).fetchone()
+                if row:
+                    con.execute(
+                        "UPDATE file SET refcount = refcount + 1 WHERE id = ?",
+                        (fid,),
+                    )
+                else:
+                    con.execute(
+                        "INSERT INTO file (id, refcount) VALUES (?, 1)", (fid,)
+                    )
+
+        con.create_function("update_refcount", 2, update_refcount)
         stores = {name: i for i, name in con.execute("SELECT id, name FROM object_store")}
         # Prefer the real settings store; skip pure cache DBs.
         store_id = None
@@ -198,10 +227,12 @@ for base in candidates:
             )
             if row and row[0]:
                 # file_ids looks like ".55" — best-effort unlink
-                fid = str(row[0]).lstrip(".")
-                fpath = Path(str(db) + ".files") / fid
-                if fpath.is_file():
-                    fpath.unlink()
+                for fid in str(row[0]).split("."):
+                    if not fid:
+                        continue
+                    fpath = Path(str(db) + ".files") / fid
+                    if fpath.is_file():
+                        fpath.unlink()
         con.commit()
         con.close()
         wrote += 1

@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Cold-start wrapper for Zen Browser.
+#
+# After reboot (or any full quit), launching Zen from the app menu used to skip
+# zen-sso-guard, so half-auth outlook.cloud.microsoft storage and soft
+# storage-access grants survived — private tabs worked, normal tabs hit
+# "You're signed out". Run the guard once before the first zen-bin process.
+#
+# Desktop entry: ~/.local/share/applications/zen.desktop (from zen/zen.desktop)
+# Real binary:   /opt/zen-browser-bin/zen-bin
+
+set -euo pipefail
+
+zen_real="${ZEN_BIN:-/opt/zen-browser-bin/zen-bin}"
+
+if [[ ! -x $zen_real ]]; then
+  printf 'Zen binary not found: %s\n' "$zen_real" >&2
+  exit 1
+fi
+
+if ! pgrep -x zen-bin >/dev/null; then
+  if command -v zen-sso-guard >/dev/null; then
+    # Best-effort: never block opening the browser if harden is half-broken.
+    if ! zen-sso-guard; then
+      printf 'zen-sso-guard failed; launching Zen anyway. Run: zen-outlook --check\n' >&2
+    fi
+  fi
+fi
+
+exec "$zen_real" "$@"

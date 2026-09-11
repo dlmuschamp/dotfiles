@@ -330,6 +330,10 @@ print(
 )
 PY
 
+if (( check_only )); then
+  exit 0
+fi
+
 # Always re-apply extension harden (Dark Reader + uBlock filters in IDB / policies)
 zen-sso-harden
 

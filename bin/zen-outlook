@@ -17,7 +17,12 @@
 
 set -euo pipefail
 
-url=https://outlook.office.com/mail/
+# Always use outlook.cloud.microsoft — Microsoft migrates office.com there, and
+# starting on office.com while the redirect_uri lands on cloud.microsoft splits
+# MSAL PKCE sessionStorage across origins (code arrives, verifier is missing →
+# logoutRedirect). Private windows often stay on one host; normal profile had
+# both. Session restore also replayed stale #code= / logout tabs.
+url=https://outlook.cloud.microsoft/mail/
 zen_bin=/opt/zen-browser-bin/zen-bin
 
 zen_running() {
