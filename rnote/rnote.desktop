@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Rnote
+Comment=Sketch and take handwritten notes
+Exec=flatpak run com.github.flxzt.rnote
+Icon=com.github.flxzt.rnote
+Terminal=false
+Type=Application
+Categories=Graphics;Office;
+Keywords=notes;drawing;stylus;handwriting;PDF;
+StartupNotify=true

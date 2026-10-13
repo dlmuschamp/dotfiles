@@ -5,33 +5,218 @@
 #   theme-wallpaper                         # open background picker
 #   theme-wallpaper /path/to/image.jpg      # set this image
 #   theme-wallpaper next                    # cycle theme backgrounds
+#   theme-wallpaper --fit [path]            # letterbox (black bars)
+#   theme-wallpaper --zoom [path]           # cover / crop (default)
+#   theme-wallpaper --center [path]         # native size, centered
+#   theme-wallpaper --scale N [path]        # zoom past fit (keep bars; N>=1)
+#   theme-wallpaper --frame [path]          # drag/scroll to pick framing
 #
 # Colors alone: theme-colors <theme-name>
 # Colors from wallpaper: aether --generate /path/to.jpg
 
 set -euo pipefail
 
-if [[ $# -eq 0 ]]; then
-  exec omarchy-theme-bg-switcher
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/current"
+MODE_FILE="$STATE_DIR/background-mode"
+FOCUS_FILE="$STATE_DIR/background-focus"
+SCALE_FILE="$STATE_DIR/background-scale"
+
+MODE=""
+SCALE=""
+FRAME=0
+PATH_ARG=""
+ACTION=""
+
+usage() {
+  cat <<'EOF'
+Usage: theme-wallpaper [options] [path|next]
+
+  (no args)     open the Omarchy background switcher
+  <path>        set that image as wallpaper
+  next          cycle to the next background for the current theme
+
+Framing (persists across wallpaper changes):
+  --fit         preserve aspect ratio with black bars
+  --zoom        fill the screen, cropping overflow (default)
+  --center      center at native resolution (pad / crop edges)
+  --scale N     zoom past fit (N>=1). Bars shrink; drag/pan chooses crop.
+                Implies --fit. 1 = full image letterboxed.
+  --frame       graphical framer (scroll/± zoom in fit; drag to pan;
+                f/z/c switch mode; 0 resets scale; Enter saves; Esc cancels)
+
+Examples:
+  theme-wallpaper --fit ~/Pictures/poster.jpg
+  theme-wallpaper --fit --scale 1.35
+  theme-wallpaper --frame          # scroll to zoom, drag to pan
+  theme-wallpaper --zoom
+EOF
+}
+
+normalize_mode() {
+  case "${1,,}" in
+    fit|contain|letterbox) echo fit ;;
+    center|pad) echo center ;;
+    zoom|cover|crop|"") echo zoom ;;
+    *)
+      echo "Unknown mode: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+normalize_scale() {
+  local raw=$1
+  if ! [[ $raw =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "Invalid --scale value: $raw (expected number >= 1)" >&2
+    exit 1
+  fi
+  awk -v s="$raw" 'BEGIN {
+    if (s < 1) s = 1
+    if (s > 8) s = 8
+    printf "%.4f\n", s
+  }'
+}
+
+write_mode() {
+  local mode
+  mode=$(normalize_mode "$1")
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$mode" >"$MODE_FILE"
+  omarchy-shell -q background setMode "$mode" || true
+}
+
+write_scale() {
+  local scale
+  scale=$(normalize_scale "$1")
+  mkdir -p "$STATE_DIR"
+  printf '%s\n' "$scale" >"$SCALE_FILE"
+  omarchy-shell -q background setScale "$scale" || true
+}
+
+ensure_focus_file() {
+  if [[ ! -f $FOCUS_FILE ]]; then
+    mkdir -p "$STATE_DIR"
+    printf '0.5000,0.5000\n' >"$FOCUS_FILE"
+  fi
+}
+
+ensure_scale_file() {
+  if [[ ! -f $SCALE_FILE ]]; then
+    mkdir -p "$STATE_DIR"
+    printf '1.0000\n' >"$SCALE_FILE"
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --fit|--contain|--letterbox)
+      MODE=fit
+      shift
+      ;;
+    --zoom|--cover|--crop)
+      MODE=zoom
+      shift
+      ;;
+    --center|--pad)
+      MODE=center
+      shift
+      ;;
+    --mode)
+      [[ $# -ge 2 ]] || { echo "--mode requires fit|zoom|center" >&2; exit 1; }
+      MODE=$(normalize_mode "$2")
+      shift 2
+      ;;
+    --mode=*)
+      MODE=$(normalize_mode "${1#--mode=}")
+      shift
+      ;;
+    --scale)
+      [[ $# -ge 2 ]] || { echo "--scale requires a number >= 1" >&2; exit 1; }
+      SCALE=$2
+      shift 2
+      ;;
+    --scale=*)
+      SCALE=${1#--scale=}
+      shift
+      ;;
+    --frame)
+      FRAME=1
+      shift
+      ;;
+    next)
+      ACTION=next
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n $PATH_ARG ]]; then
+        echo "Unexpected argument: $1" >&2
+        exit 1
+      fi
+      PATH_ARG=$1
+      shift
+      ;;
+  esac
+done
+
+# Scale only makes sense on top of fit letterboxing.
+if [[ -n $SCALE && -z $MODE ]]; then
+  MODE=fit
 fi
 
-if [[ $1 == "-h" || $1 == "--help" ]]; then
-  echo "Usage: theme-wallpaper [path|next]"
-  echo "  (no args)  open the Omarchy background switcher"
-  echo "  <path>     set that image as wallpaper"
-  echo "  next       cycle to the next background for the current theme"
+if [[ -n $MODE ]]; then
+  write_mode "$MODE"
+fi
+
+if [[ -n $SCALE ]]; then
+  write_scale "$SCALE"
+fi
+
+if (( FRAME )); then
+  ensure_focus_file
+  ensure_scale_file
+  if [[ -n $PATH_ARG ]]; then
+    if [[ ! -f $PATH_ARG ]]; then
+      echo "Not a file: $PATH_ARG" >&2
+      exit 1
+    fi
+    omarchy-theme-bg-set "$PATH_ARG"
+  elif [[ $ACTION == next ]]; then
+    omarchy-theme-bg-next
+  fi
+  # Optional mode for this framing session only (saved on Enter, restored on Esc).
+  omarchy-shell -q background frame "${MODE}" || true
+  echo "Framing → scroll/± zoom · drag pan · 0 reset · f/z/c · Enter save · Esc cancel"
   exit 0
 fi
 
-case "$1" in
+if [[ -z $ACTION && -z $PATH_ARG ]]; then
+  if [[ -n $MODE || -n $SCALE ]]; then
+    mode_now=$(tr -d '[:space:]' <"$MODE_FILE" 2>/dev/null || echo zoom)
+    scale_now=$(tr -d '[:space:]' <"$SCALE_FILE" 2>/dev/null || echo 1.0000)
+    echo "Mode → $mode_now · scale ${scale_now}× (wallpaper: $(omarchy-theme-bg-current 2>/dev/null || echo unknown))"
+    exit 0
+  fi
+  exec omarchy-theme-bg-switcher
+fi
+
+case "${ACTION:-path}" in
   next)
     omarchy-theme-bg-next
     ;;
-  *)
-    if [[ -f $1 ]]; then
-      omarchy-theme-bg-set "$1"
+  path)
+    if [[ -f $PATH_ARG ]]; then
+      omarchy-theme-bg-set "$PATH_ARG"
     else
-      echo "Not a file: $1" >&2
+      echo "Not a file: $PATH_ARG" >&2
       exit 1
     fi
     ;;
@@ -39,7 +224,7 @@ esac
 
 # Keep the SDDM greeter wallpaper in sync when the theme is installed.
 if [[ -d /usr/share/sddm/themes/omarchy ]]; then
-  bg=$(readlink -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/current/background" 2>/dev/null || true)
+  bg=$(readlink -f -- "$STATE_DIR/background" 2>/dev/null || true)
   if [[ -f ${bg:-} ]]; then
     case "${bg,,}" in
       *.jpg|*.jpeg) sudo cp -- "$bg" /usr/share/sddm/themes/omarchy/background.jpg ;;
@@ -48,4 +233,10 @@ if [[ -d /usr/share/sddm/themes/omarchy ]]; then
   fi
 fi
 
-echo "Wallpaper → $(omarchy-theme-bg-current 2>/dev/null || echo set)"
+mode_now=$(tr -d '[:space:]' <"$MODE_FILE" 2>/dev/null || echo zoom)
+scale_now=$(tr -d '[:space:]' <"$SCALE_FILE" 2>/dev/null || echo 1.0000)
+if [[ $mode_now == fit ]]; then
+  echo "Wallpaper → $(omarchy-theme-bg-current 2>/dev/null || echo set) [fit ×${scale_now}]"
+else
+  echo "Wallpaper → $(omarchy-theme-bg-current 2>/dev/null || echo set) [$mode_now]"
+fi

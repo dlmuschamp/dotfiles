@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "luciano.background",
+  "name": "Background (framing)",
+  "version": "1.0.0",
+  "author": "luciano",
+  "description": "Desktop background with fit (scalable letterbox), zoom, and center framing",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Background.qml"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.background"
+  }
+}

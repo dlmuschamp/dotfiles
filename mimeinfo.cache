@@ -1,0 +1,25 @@
+[MIME Cache]
+application/json=zen-zen.desktop;
+application/pdf=zen-zen.desktop;
+application/rdf+xml=zen-zen.desktop;
+application/rss+xml=zen-zen.desktop;
+application/x-xpinstall=zen-zen.desktop;
+application/xhtml+xml=zen-zen.desktop;
+application/xml=zen-zen.desktop;
+audio/flac=zen-zen.desktop;
+audio/ogg=zen-zen.desktop;
+audio/webm=zen-zen.desktop;
+image/avif=zen-zen.desktop;
+image/gif=zen-zen.desktop;
+image/jpeg=zen-zen.desktop;
+image/png=zen-zen.desktop;
+image/svg+xml=zen-zen.desktop;
+image/webp=zen-zen.desktop;
+text/html=zen-zen.desktop;
+text/xml=zen-zen.desktop;
+video/ogg=zen-zen.desktop;
+video/webm=zen-zen.desktop;
+x-scheme-handler/chrome=zen-zen.desktop;
+x-scheme-handler/http=zen-zen.desktop;
+x-scheme-handler/https=zen-zen.desktop;
+x-scheme-handler/mailto=zen-zen.desktop;

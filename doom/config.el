@@ -767,46 +767,51 @@ Returns plists (:title :date :mins :sort) sorted by date then title."
       (select-window win)
     (user-error "No Org Agenda window open — press SPC o D for command center")))
 
+(defun luciano/org-command-chart-week-earlier ()
+  "Shift command-center chart one week earlier."
+  (interactive)
+  (luciano/org--weekly-dashboard-buffer
+   (1- (or (and (boundp 'luciano/org-command-chart-week)
+                luciano/org-command-chart-week)
+           0))))
+
+(defun luciano/org-command-chart-week-later ()
+  "Shift command-center chart one week later."
+  (interactive)
+  (luciano/org--weekly-dashboard-buffer
+   (1+ (or (and (boundp 'luciano/org-command-chart-week)
+                luciano/org-command-chart-week)
+           0))))
+
 (defun luciano/org-command-chart-setup-keys ()
-  "Bind chart keys; Evil normal mode otherwise steals bare letters like t."
+  "Bind chart keys; Evil normal mode otherwise steals bare letters and <>."
   (setq buffer-read-only t)
-  (when (bound-and-true-p evil-local-mode)
-    (evil-local-mode -1))
-  (local-set-key (kbd "t") #'luciano/org-command-chart-cycle-mode)
-  (local-set-key (kbd "a") #'luciano/org-command-chart-goto-agenda)
-  (local-set-key (kbd "TAB") #'luciano/org-command-chart-goto-agenda)
-  (local-set-key (kbd "<tab>") #'luciano/org-command-chart-goto-agenda)
-  (local-set-key (kbd "g") #'revert-buffer)
-  (local-set-key (kbd "c") #'luciano/org-copy-arbor-timesheet)
-  (local-set-key (kbd "q") #'luciano/kill-buffer-ask-save)
-  (local-set-key (kbd "<")
-                 (lambda ()
-                   (interactive)
-                   (luciano/org--weekly-dashboard-buffer
-                    (1- luciano/org-command-chart-week))))
-  (local-set-key (kbd ",")
-                 (lambda ()
-                   (interactive)
-                   (luciano/org--weekly-dashboard-buffer
-                    (1- luciano/org-command-chart-week))))
-  (local-set-key (kbd ">")
-                 (lambda ()
-                   (interactive)
-                   (luciano/org--weekly-dashboard-buffer
-                    (1+ luciano/org-command-chart-week))))
-  (local-set-key (kbd ".")
-                 (lambda ()
-                   (interactive)
-                   (luciano/org--weekly-dashboard-buffer
-                    (1+ luciano/org-command-chart-week))))
+  ;; Prefer Evil aux bindings over turning Evil off — Doom often re-enables
+  ;; evil-local-mode on special-mode buffers, which made local-only <> binds
+  ;; lose to evil-shift-left/right while t/a/g (also in evil-define-key) worked.
+  (dolist (bind `(("t" . luciano/org-command-chart-cycle-mode)
+                  ("a" . luciano/org-command-chart-goto-agenda)
+                  ("TAB" . luciano/org-command-chart-goto-agenda)
+                  ("<tab>" . luciano/org-command-chart-goto-agenda)
+                  ("g" . revert-buffer)
+                  ("c" . luciano/org-copy-arbor-timesheet)
+                  ("q" . luciano/kill-buffer-ask-save)
+                  ("S-," . luciano/org-command-chart-week-earlier)
+                  ("," . luciano/org-command-chart-week-earlier)
+                  ("S-." . luciano/org-command-chart-week-later)
+                  ("." . luciano/org-command-chart-week-later)))
+    (local-set-key (kbd (car bind)) (cdr bind)))
   (when (fboundp 'evil-define-key)
     (evil-define-key '(normal insert) (current-local-map)
       "t" #'luciano/org-command-chart-cycle-mode
       "a" #'luciano/org-command-chart-goto-agenda
       "g" #'revert-buffer
       "c" #'luciano/org-copy-arbor-timesheet
-      "q" #'luciano/kill-buffer-ask-save)))
-
+      "q" #'luciano/kill-buffer-ask-save
+      "S-," #'luciano/org-command-chart-week-earlier
+      "," #'luciano/org-command-chart-week-earlier
+      "S-." #'luciano/org-command-chart-week-later
+      "." #'luciano/org-command-chart-week-later)))
 (defun luciano/org--arbor-file ()
   "Absolute path to arbor.org (the only billable source)."
   (file-truename (expand-file-name "arbor.org" org-directory)))
@@ -1448,8 +1453,8 @@ Includes point-in-time stamps (no end) as start-only rows."
     (when (not (string-empty-p s))
       (condition-case nil
           (let* ((ts (if (string-match-p "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]" s)
-                         (concat "<" s ">")
-                       (concat "<" (format-time-string "%Y-%m-%d %a ") s ">")))
+                         (concat "S-," s "S-.")
+                       (concat "S-," (format-time-string "%Y-%m-%d %a ") s "S-.")))
                  (time (org-time-string-to-time ts)))
             (when (and time (nth 2 (decode-time time)))
               (luciano/org--round-time-up time 15)))
@@ -1706,307 +1711,309 @@ Empty input auto-slots with defaults — no follow-up prompts."
             (cons start end))
         (let ((start (org-time-string-to-time inner)))
           (cons start (time-add start (seconds-to-time
-                                       (* 60 luciano/org--default-event-minutes))))))))
+                                       (* 60 luciano/org--default-event-minutes)))))))))
 
-  (defun luciano/org--time-ranges-overlap-p (s1 e1 s2 e2)
-    (and (time-less-p s1 e2) (time-less-p s2 e1)))
+(defun luciano/org--time-ranges-overlap-p (s1 e1 s2 e2)
+  (and (time-less-p s1 e2) (time-less-p s2 e1)))
 
-  (defun luciano/org--find-overlapping-events (start end &optional skip-pos)
-    "Return alist of overlapping open timed events across planner files."
-    (let (hits)
-      (dolist (file '("personal.org" "arbor.org" "school.org" "canvas.org"))
-        (let ((abs (expand-file-name file org-directory)))
-          (when (file-readable-p abs)
-            (with-current-buffer (find-file-noselect abs)
-              (org-with-wide-buffer
-               (org-map-entries
-                (lambda ()
-                  (when (and (or (null skip-pos) (/= (point) skip-pos))
-                             (not (org-entry-is-done-p)))
-                    (let ((range (luciano/org--scheduled-range-at-point)))
-                      (when (and range
-                                 (luciano/org--time-ranges-overlap-p
-                                  start end (car range) (cdr range)))
-                        (push (format "%s (%s)"
-                                      (org-get-heading t t t t)
-                                      (file-name-nondirectory abs))
-                              hits)))))
-                nil 'file)))))
-        (nreverse hits)))
+(defun luciano/org--find-overlapping-events (start end &optional skip-pos)
+  "Return alist of overlapping open timed events across planner files."
+  (let (hits)
+    (dolist (file '("personal.org" "arbor.org" "school.org" "canvas.org"))
+      (let ((abs (expand-file-name file org-directory)))
+        (when (file-readable-p abs)
+          (with-current-buffer (find-file-noselect abs)
+            (org-with-wide-buffer
+             (org-map-entries
+              (lambda ()
+                (when (and (or (null skip-pos) (/= (point) skip-pos))
+                           (not (org-entry-is-done-p)))
+                  (let ((range (luciano/org--scheduled-range-at-point)))
+                    (when (and range
+                               (luciano/org--time-ranges-overlap-p
+                                start end (car range) (cdr range)))
+                      (push (format "%s (%s)"
+                                    (org-get-heading t t t t)
+                                    (file-name-nondirectory abs))
+                            hits)))))
+              nil 'file)))))
+      (nreverse hits))))
 
-    (defun luciano/org--confirm-overlapping-schedule (start end &optional skip-pos)
-      "Ask once before creating an overlapping timed event. Return non-nil to proceed."
-      (let ((hits (luciano/org--find-overlapping-events start end skip-pos)))
-        (if (null hits)
-            t
-          (y-or-n-p
-           (format "Overlaps existing event(s): %s — add anyway?"
-                   (mapconcat #'identity (seq-take hits 3) "; "))))))
+(defun luciano/org--confirm-overlapping-schedule (start end &optional skip-pos)
+  "Ask once before creating an overlapping timed event. Return non-nil to proceed."
+  (let ((hits (luciano/org--find-overlapping-events start end skip-pos)))
+    (if (null hits)
+        t
+      (y-or-n-p
+       (format "Overlaps existing event(s): %s — add anyway?"
+               (mapconcat #'identity (seq-take hits 3) "; "))))))
 
-    (defun luciano/org-read-date--warn-duplicate-a (result)
-      "During capture, warn before accepting a time that overlaps existing events."
-      (when (and result (stringp result)
-                 org-capture-mode
-                 (string-match ":" result))
-        (let ((range (luciano/org--parse-read-date-range result)))
-          (when range
-            (setq luciano/org--accepted-duplicate-schedule
-                  (luciano/org--confirm-overlapping-schedule
-                   (car range) (cdr range)))
-            (unless luciano/org--accepted-duplicate-schedule
-              (user-error "Capture cancelled — overlapping schedule")))))
-      result)
+(defun luciano/org-read-date--warn-duplicate-a (result)
+  "During capture, warn before accepting a time that overlaps existing events."
+  (when (and result (stringp result)
+             org-capture-mode
+             (string-match ":" result))
+    (let ((range (luciano/org--parse-read-date-range result)))
+      (when range
+        (setq luciano/org--accepted-duplicate-schedule
+              (luciano/org--confirm-overlapping-schedule
+               (car range) (cdr range)))
+        (unless luciano/org--accepted-duplicate-schedule
+          (user-error "Capture cancelled — overlapping schedule")))))
+  result)
 
-    (defun luciano/org-capture-warn-duplicate-schedule ()
-      "Final capture check before writing a possibly overlapping timed event."
-      (when (org-at-heading-p)
-        (let ((range (luciano/org--scheduled-range-at-point)))
-          (when (and range (not luciano/org--accepted-duplicate-schedule))
-            (unless (luciano/org--confirm-overlapping-schedule
-                     (car range) (cdr range) (point))
-              (setq org-note-abort t)
-              (user-error "Capture cancelled — overlapping schedule"))
-            (setq luciano/org--accepted-duplicate-schedule t)))))
+(defun luciano/org-capture-warn-duplicate-schedule ()
+  "Final capture check before writing a possibly overlapping timed event."
+  (when (org-at-heading-p)
+    (let ((range (luciano/org--scheduled-range-at-point)))
+      (when (and range (not luciano/org--accepted-duplicate-schedule))
+        (unless (luciano/org--confirm-overlapping-schedule
+                 (car range) (cdr range) (point))
+          (setq org-note-abort t)
+          (user-error "Capture cancelled — overlapping schedule"))
+        (setq luciano/org--accepted-duplicate-schedule t)))))
 
-    (advice-add 'org-read-date :filter-return #'luciano/org-read-date--warn-duplicate-a)
-    (add-hook 'org-capture-before-finalize-hook #'luciano/org-capture-warn-duplicate-schedule)
+(advice-add 'org-read-date :filter-return #'luciano/org-read-date--warn-duplicate-a)
+(add-hook 'org-capture-before-finalize-hook #'luciano/org-capture-warn-duplicate-schedule)
 
-    (defun luciano/org--bar (mins max-mins width face &optional pad)
-      "Propertized ASCII bar for MINS relative to MAX-MINS."
-      (let* ((max-mins (max (float max-mins) 1.0))
-             (filled (round (* width (/ mins max-mins))))
-             (filled (min width (max (if (> mins 0) 1 0) filled)))
-             (bar (concat (make-string filled ?█)
-                          (if pad (make-string (- width filled) ?·) ""))))
-        (propertize bar 'face face)))
+(defun luciano/org--bar (mins max-mins width face &optional pad)
+  "Propertized ASCII bar for MINS relative to MAX-MINS."
+  (let* ((max-mins (max (float max-mins) 1.0))
+         (filled (round (* width (/ mins max-mins))))
+         (filled (min width (max (if (> mins 0) 1 0) filled)))
+         (bar (concat (make-string filled ?█)
+                      (if pad (make-string (- width filled) ?·) ""))))
+    (propertize bar 'face face)))
 
-    (defun luciano/org-weekly-time-chart (&optional week-shift expand)
-      "ASCII weekly time chart by day and category.
+(defun luciano/org-weekly-time-chart (&optional week-shift expand)
+  "ASCII weekly time chart by day and category.
 With prefix ARG (or EXPAND non-nil), show longest tasks breakdown.
 WEEK-SHIFT: 0=this week, -1=last week, etc."
-      (interactive (list 0 current-prefix-arg))
-      (require 'org-clock)
-      (let* ((week-shift (or week-shift 0))
-             (expand (or expand current-prefix-arg))
-             (shifted (luciano/org--time-add (current-time)
-                                             (* week-shift 7 24 60 60)))
-             (bounds (luciano/org--week-bounds shifted))
-             (start (car bounds))
-             (end (cdr bounds))
-             (rows (luciano/org--collect-clocks start end))
-             (days '())
-             (cats '())
-             (day-cat (make-hash-table :test 'equal))
-             (cat-total (make-hash-table :test 'equal))
-             (day-total (make-hash-table :test 'equal))
-             (buf (get-buffer-create "*Org Time Chart*")))
-        (dotimes (i 7)
-          (push (format-time-string
-                 "%a %m/%d"
-                 (luciano/org--time-add start (* i 24 60 60)))
-                days))
-        (setq days (nreverse days))
-        (dolist (r rows)
-          (let ((cat (plist-get r :cat))
-                (day (plist-get r :day))
-                (mins (plist-get r :mins)))
-            (unless (member cat cats) (push cat cats))
-            (puthash (cons day cat)
-                     (+ mins (gethash (cons day cat) day-cat 0))
-                     day-cat)
-            (puthash cat (+ mins (gethash cat cat-total 0)) cat-total)
-            (puthash day (+ mins (gethash day day-total 0)) day-total)))
-        (setq cats (nreverse cats))
-        (with-current-buffer buf
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (special-mode)
-            (setq-local revert-buffer-function
-                        (lambda (&rest _)
-                          (luciano/org-weekly-time-chart week-shift expand)))
-            (insert (propertize
-                     (format "Weekly time  %s → %s%s\n"
-                             (format-time-string "%a %b %d" start)
-                             (format-time-string "%a %b %d"
-                                                 (luciano/org--time-add end -1))
-                             (if expand "  (expanded)" ""))
-                     'face 'bold))
-            (insert "Keys: g refresh · e expand/collapse · </>/,/. week · q quit\n")
-            (insert (format "Legend: %s  %s  %s  %s\n\n"
-                            (propertize "Arbor" 'face 'luciano/time-chart-arbor)
-                            (propertize "Personal" 'face 'luciano/time-chart-personal)
-                            (propertize "School" 'face 'luciano/time-chart-school)
-                            (propertize "Other" 'face 'luciano/time-chart-other)))
-            (let* ((max-day (or (cl-loop for d in days
-                                         maximize (gethash d day-total 0))
-                                1))
-                   (bar-w 28))
-              (insert (format "%-12s %6s  %s\n" "Day" "Hours" "By category"))
-              (insert (make-string 72 ?─) "\n")
-              (dolist (d days)
-                (let* ((tot (gethash d day-total 0))
-                       (hrs (/ tot 60.0)))
-                  (insert (format "%-12s %5.1fh  " d hrs))
-                  (if (zerop tot)
-                      (insert (propertize (make-string bar-w ?·) 'face 'shadow) "\n")
-                    (progn
-                      ;; Stacked colored segments proportional to the day's mix.
-                      (dolist (cat cats)
-                        (let ((m (gethash (cons d cat) day-cat 0)))
-                          (when (> m 0)
-                            (insert (luciano/org--bar m max-day
-                                                      (max 1 (round (* bar-w (/ m (float max-day)))))
-                                                      (luciano/org--category-face cat))))))
-                      (insert "\n")
-                      (dolist (cat cats)
-                        (let ((m (gethash (cons d cat) day-cat 0)))
-                          (when (> m 0)
-                            (insert (format "             %s %4.1fh  %s\n"
-                                            (propertize (format "%-10s" cat)
-                                                        'face (luciano/org--category-face cat))
-                                            (/ m 60.0)
-                                            (luciano/org--bar m max-day 12
-                                                              (luciano/org--category-face cat)
-                                                              t))))))))))
-              (insert "\n" (propertize "Week totals\n" 'face 'bold))
-              (let ((grand 0.0))
-                (dolist (cat cats)
-                  (let ((m (gethash cat cat-total 0)))
-                    (setq grand (+ grand m))
-                    (insert (format "  %s %5.1fh  %s\n"
-                                    (propertize (format "%-10s" cat)
-                                                'face (luciano/org--category-face cat))
-                                    (/ m 60.0)
-                                    (luciano/org--bar m (max grand 1) 24
-                                                      (luciano/org--category-face cat)
-                                                      t)))))
-                (insert (format "  %-10s %5.1fh\n" "TOTAL" (/ grand 60.0))))
-              (when expand
-                (insert "\n" (propertize "Longest tasks this week\n" 'face 'bold))
-                (let* ((by-title (make-hash-table :test 'equal))
-                       (items '()))
-                  (dolist (r rows)
-                    (let* ((key (cons (plist-get r :cat) (plist-get r :title)))
-                           (m (plist-get r :mins)))
-                      (puthash key (+ m (gethash key by-title 0)) by-title)))
-                  (maphash (lambda (k v) (push (cons k v) items)) by-title)
-                  (setq items (cl-sort items #'> :key #'cdr))
-                  (cl-loop for ((cat . title) . mins) in items
-                           for i from 1 to 15
-                           do (insert
-                               (format "  %2d. %s %5.1fh  %s\n"
-                                       i
-                                       (propertize (format "%-10s" cat)
-                                                   'face (luciano/org--category-face cat))
-                                       (/ mins 60.0)
-                                       (truncate-string-to-width
-                                        (or title "?") 48 nil nil "…"))))))
-              (insert "\nTip: set state to IN_PROGRESS to auto-clock; leave it to log actual time.\n")
-              (insert "Command center (SPC o A d): press t to toggle actual / planned / both.\n")
-              (insert "Arbor timecard: SPC o W  (hours per task this week).\n"))
-            (goto-char (point-min))
-            (setq-local luciano/org-time-chart-week week-shift)
-            (setq-local luciano/org-time-chart-expand expand)
-            (local-set-key (kbd "g") #'revert-buffer)
-            (local-set-key (kbd "e")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-weekly-time-chart
-                              luciano/org-time-chart-week
-                              (not luciano/org-time-chart-expand))))
-            (local-set-key (kbd "<")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-weekly-time-chart
-                              (1- luciano/org-time-chart-week)
-                              luciano/org-time-chart-expand)))
-            (local-set-key (kbd ",")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-weekly-time-chart
-                              (1- luciano/org-time-chart-week)
-                              luciano/org-time-chart-expand)))
-            (local-set-key (kbd ">")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-weekly-time-chart
-                              (1+ luciano/org-time-chart-week)
-                              luciano/org-time-chart-expand)))
-            (local-set-key (kbd ".")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-weekly-time-chart
-                              (1+ luciano/org-time-chart-week)
-                              luciano/org-time-chart-expand)))
-            (local-set-key (kbd "q") #'luciano/kill-buffer-ask-save)))
-        (pop-to-buffer buf)))
+  (interactive (list 0 current-prefix-arg))
+  (require 'org-clock)
+  (let* ((week-shift (or week-shift 0))
+         (expand (or expand current-prefix-arg))
+         (shifted (luciano/org--time-add (current-time)
+                                         (* week-shift 7 24 60 60)))
+         (bounds (luciano/org--week-bounds shifted))
+         (start (car bounds))
+         (end (cdr bounds))
+         (rows (luciano/org--collect-clocks start end))
+         (days '())
+         (cats '())
+         (day-cat (make-hash-table :test 'equal))
+         (cat-total (make-hash-table :test 'equal))
+         (day-total (make-hash-table :test 'equal))
+         (buf (get-buffer-create "*Org Time Chart*")))
+    (dotimes (i 7)
+      (push (format-time-string
+             "%a %m/%d"
+             (luciano/org--time-add start (* i 24 60 60)))
+            days))
+    (setq days (nreverse days))
+    (dolist (r rows)
+      (let ((cat (plist-get r :cat))
+            (day (plist-get r :day))
+            (mins (plist-get r :mins)))
+        (unless (member cat cats) (push cat cats))
+        (puthash (cons day cat)
+                 (+ mins (gethash (cons day cat) day-cat 0))
+                 day-cat)
+        (puthash cat (+ mins (gethash cat cat-total 0)) cat-total)
+        (puthash day (+ mins (gethash day day-total 0)) day-total)))
+    (setq cats (nreverse cats))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (special-mode)
+        (setq-local revert-buffer-function
+                    (lambda (&rest _)
+                      (luciano/org-weekly-time-chart week-shift expand)))
+        (insert (propertize
+                 (format "Weekly time  %s → %s%s\n"
+                         (format-time-string "%a %b %d" start)
+                         (format-time-string "%a %b %d"
+                                             (luciano/org--time-add end -1))
+                         (if expand "  (expanded)" ""))
+                 'face 'bold))
+        (insert "Keys: g refresh · e expand/collapse · </>/,/. week · q quit\n")
+        (insert (format "Legend: %s  %s  %s  %s\n\n"
+                        (propertize "Arbor" 'face 'luciano/time-chart-arbor)
+                        (propertize "Personal" 'face 'luciano/time-chart-personal)
+                        (propertize "School" 'face 'luciano/time-chart-school)
+                        (propertize "Other" 'face 'luciano/time-chart-other)))
+        (let* ((max-day (or (cl-loop for d in days
+                                     maximize (gethash d day-total 0))
+                            1))
+               (bar-w 28))
+          (insert (format "%-12s %6s  %s\n" "Day" "Hours" "By category"))
+          (insert (make-string 72 ?─) "\n")
+          (dolist (d days)
+            (let* ((tot (gethash d day-total 0))
+                   (hrs (/ tot 60.0)))
+              (insert (format "%-12s %5.1fh  " d hrs))
+              (if (zerop tot)
+                  (insert (propertize (make-string bar-w ?·) 'face 'shadow) "\n")
+                (progn
+                  ;; Stacked colored segments proportional to the day's mix.
+                  (dolist (cat cats)
+                    (let ((m (gethash (cons d cat) day-cat 0)))
+                      (when (> m 0)
+                        (insert (luciano/org--bar m max-day
+                                                  (max 1 (round (* bar-w (/ m (float max-day)))))
+                                                  (luciano/org--category-face cat))))))
+                  (insert "\n")
+                  (dolist (cat cats)
+                    (let ((m (gethash (cons d cat) day-cat 0)))
+                      (when (> m 0)
+                        (insert (format "             %s %4.1fh  %s\n"
+                                        (propertize (format "%-10s" cat)
+                                                    'face (luciano/org--category-face cat))
+                                        (/ m 60.0)
+                                        (luciano/org--bar m max-day 12
+                                                          (luciano/org--category-face cat)
+                                                          t))))))))))
+          (insert "\n" (propertize "Week totals\n" 'face 'bold))
+          (let ((grand 0.0))
+            (dolist (cat cats)
+              (let ((m (gethash cat cat-total 0)))
+                (setq grand (+ grand m))
+                (insert (format "  %s %5.1fh  %s\n"
+                                (propertize (format "%-10s" cat)
+                                            'face (luciano/org--category-face cat))
+                                (/ m 60.0)
+                                (luciano/org--bar m (max grand 1) 24
+                                                  (luciano/org--category-face cat)
+                                                  t)))))
+            (insert (format "  %-10s %5.1fh\n" "TOTAL" (/ grand 60.0))))
+          (when expand
+            (insert "\n" (propertize "Longest tasks this week\n" 'face 'bold))
+            (let* ((by-title (make-hash-table :test 'equal))
+                   (items '()))
+              (dolist (r rows)
+                (let* ((key (cons (plist-get r :cat) (plist-get r :title)))
+                       (m (plist-get r :mins)))
+                  (puthash key (+ m (gethash key by-title 0)) by-title)))
+              (maphash (lambda (k v) (push (cons k v) items)) by-title)
+              (setq items (cl-sort items #'> :key #'cdr))
+              (cl-loop for ((cat . title) . mins) in items
+                       for i from 1 to 15
+                       do (insert
+                           (format "  %2d. %s %5.1fh  %s\n"
+                                   i
+                                   (propertize (format "%-10s" cat)
+                                               'face (luciano/org--category-face cat))
+                                   (/ mins 60.0)
+                                   (truncate-string-to-width
+                                    (or title "?") 48 nil nil "…"))))))
+          (insert "\nTip: set state to IN_PROGRESS to auto-clock; leave it to log actual time.\n")
+          (insert "Command center (SPC o A d): press t to toggle actual / planned / both.\n")
+          (insert "Arbor timecard: SPC o W  (hours per task this week).\n"))
+        (goto-char (point-min))
+        (setq-local luciano/org-time-chart-week week-shift)
+        (setq-local luciano/org-time-chart-expand expand)
+        (cl-labels
+            ((toggle-expand ()
+               (interactive)
+               (luciano/org-weekly-time-chart
+                luciano/org-time-chart-week
+                (not luciano/org-time-chart-expand)))
+             (week-earlier ()
+               (interactive)
+               (luciano/org-weekly-time-chart
+                (1- luciano/org-time-chart-week)
+                luciano/org-time-chart-expand))
+             (week-later ()
+               (interactive)
+               (luciano/org-weekly-time-chart
+                (1+ luciano/org-time-chart-week)
+                luciano/org-time-chart-expand)))
+          (dolist (bind `(("g" . revert-buffer)
+                          ("e" . ,#'toggle-expand)
+                          ("S-," . ,#'week-earlier)
+                          ("," . ,#'week-earlier)
+                          ("S-." . ,#'week-later)
+                          ("." . ,#'week-later)
+                          ("q" . luciano/kill-buffer-ask-save)))
+            (local-set-key (kbd (car bind)) (cdr bind)))
+          (when (fboundp 'evil-define-key)
+            (evil-define-key '(normal insert) (current-local-map)
+              "g" #'revert-buffer
+              "e" #'toggle-expand
+              "S-," #'week-earlier
+              "," #'week-earlier
+              "S-." #'week-later
+              "." #'week-later
+              "q" #'luciano/kill-buffer-ask-save))))
+      (pop-to-buffer buf)))
 
-    (defun luciano/org-agenda-weekly-time-chart (&optional _match)
-      "Agenda dispatcher entry point for the weekly time chart."
-      (luciano/org-weekly-time-chart 0 nil))
+  (defun luciano/org-agenda-weekly-time-chart (&optional _match)
+    "Agenda dispatcher entry point for the weekly time chart."
+    (luciano/org-weekly-time-chart 0 nil))
 
-    (defun luciano/org-arbor-timecard (&optional week-shift)
-      "Hours clocked per Arbor CLOCK segment this week (timecard helper).
+  (defun luciano/org-arbor-timecard (&optional week-shift)
+    "Hours clocked per Arbor CLOCK segment this week (timecard helper).
 WEEK-SHIFT: 0=this week, -1=last week. Keys: g refresh, </> week, q quit.
 Only arbor.org — never Personal/School/Canvas. One row per clock-in."
-      (interactive (list 0))
-      (require 'org-clock)
-      (let* ((week-shift (or week-shift 0))
-             (shifted (luciano/org--time-add (current-time)
-                                             (* week-shift 7 24 60 60)))
-             (bounds (luciano/org--week-bounds shifted))
-             (start (car bounds))
-             (end (cdr bounds))
-             (rows (luciano/org--arbor-clock-rows start end))
-             (items (luciano/org--timesheet-merge-same-day rows))
-             (buf (get-buffer-create "*Arbor Timecard*")))
-        (with-current-buffer buf
-          (let ((inhibit-read-only t))
-            (erase-buffer)
-            (special-mode)
-            (setq-local revert-buffer-function
-                        (lambda (&rest _)
-                          (luciano/org-arbor-timecard week-shift)))
-            (setq-local luciano/org-arbor-timecard-week week-shift)
-            (insert (propertize
-                     (format "Arbor timecard  %s → %s\n"
-                             (format-time-string "%a %b %d" start)
-                             (format-time-string "%a %b %d"
-                                                 (luciano/org--time-add end -1)))
-                     'face 'bold))
-            (insert "arbor.org only · same-day merged · billable → 15m · c copies\n")
-            (insert "Keys: g refresh · </>/,/. week · c copy · q quit\n\n")
-            (insert (luciano/org--timesheet-table-body items))
-            (setq-local luciano/org-command-chart-timesheet
-                        (luciano/org--format-arbor-timesheet week-shift))
-            (insert "\nAlso: SPC o A → A (agenda clockreport) · command center right pane\n")
-            (goto-char (point-min))
-            (setq buffer-read-only t)
-            (when (bound-and-true-p evil-local-mode)
-              (evil-local-mode -1))
-            (local-set-key (kbd "g") #'revert-buffer)
-            (local-set-key (kbd "c") #'luciano/org-copy-arbor-timesheet)
-            (local-set-key (kbd "<")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-arbor-timecard
-                              (1- luciano/org-arbor-timecard-week))))
-            (local-set-key (kbd ",")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-arbor-timecard
-                              (1- luciano/org-arbor-timecard-week))))
-            (local-set-key (kbd ">")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-arbor-timecard
-                              (1+ luciano/org-arbor-timecard-week))))
-            (local-set-key (kbd ".")
-                           (lambda ()
-                             (interactive)
-                             (luciano/org-arbor-timecard
-                              (1+ luciano/org-arbor-timecard-week))))
-            (local-set-key (kbd "q") #'luciano/kill-buffer-ask-save)))
+    (interactive (list 0))
+    (require 'org-clock)
+    (let* ((week-shift (or week-shift 0))
+           (shifted (luciano/org--time-add (current-time)
+                                           (* week-shift 7 24 60 60)))
+           (bounds (luciano/org--week-bounds shifted))
+           (start (car bounds))
+           (end (cdr bounds))
+           (rows (luciano/org--arbor-clock-rows start end))
+           (items (luciano/org--timesheet-merge-same-day rows))
+           (buf (get-buffer-create "*Arbor Timecard*")))
+      (with-current-buffer buf
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (special-mode)
+          (setq-local revert-buffer-function
+                      (lambda (&rest _)
+                        (luciano/org-arbor-timecard week-shift)))
+          (setq-local luciano/org-arbor-timecard-week week-shift)
+          (insert (propertize
+                   (format "Arbor timecard  %s → %s\n"
+                           (format-time-string "%a %b %d" start)
+                           (format-time-string "%a %b %d"
+                                               (luciano/org--time-add end -1)))
+                   'face 'bold))
+          (insert "arbor.org only · same-day merged · billable → 15m · c copies\n")
+          (insert "Keys: g refresh · </>/,/. week · c copy · q quit\n\n")
+          (insert (luciano/org--timesheet-table-body items))
+          (setq-local luciano/org-command-chart-timesheet
+                      (luciano/org--format-arbor-timesheet week-shift))
+          (insert "\nAlso: SPC o A → A (agenda clockreport) · command center right pane\n")
+          (goto-char (point-min))
+          (setq buffer-read-only t)
+          (cl-labels
+              ((week-earlier ()
+                 (interactive)
+                 (luciano/org-arbor-timecard
+                  (1- luciano/org-arbor-timecard-week)))
+               (week-later ()
+                 (interactive)
+                 (luciano/org-arbor-timecard
+                  (1+ luciano/org-arbor-timecard-week))))
+            (dolist (bind `(("g" . revert-buffer)
+                            ("c" . luciano/org-copy-arbor-timesheet)
+                            ("S-," . ,#'week-earlier)
+                            ("," . ,#'week-earlier)
+                            ("S-." . ,#'week-later)
+                            ("." . ,#'week-later)
+                            ("q" . luciano/kill-buffer-ask-save)))
+              (local-set-key (kbd (car bind)) (cdr bind)))
+            (when (fboundp 'evil-define-key)
+              (evil-define-key '(normal insert) (current-local-map)
+                "g" #'revert-buffer
+                "c" #'luciano/org-copy-arbor-timesheet
+                "S-," #'week-earlier
+                "," #'week-earlier
+                "S-." #'week-later
+                "." #'week-later
+                "q" #'luciano/kill-buffer-ask-save))))
         (pop-to-buffer buf)))
 
     (defun luciano/org-agenda-arbor-timecard (&optional _match)
