@@ -22,6 +22,27 @@ personal configuration. Omarchy's preinstalled applications, system
 provisioners, theme packs, screensaver, background switcher, and branded lock
 screen are not enabled.
 
+* Vim-style desktop navigation
+
+Caps Lock acts as Super. These bindings work alongside the original arrow
+shortcuts, with classic =dwindle= tiling remaining the default.
+
+| Shortcut | Action |
+|----------+--------|
+| Super + H/J/K/L | Focus left/down/up/right |
+| Super + Shift + H/J/K/L | Swap window left/down/up/right |
+| Super + backslash | Toggle current workspace between dwindle and scrolling |
+| Super + Alt + J | Toggle split orientation (dwindle) |
+| Super + F1 | Show desktop keybindings |
+| Super + Alt + K | Show tmux keybindings (unchanged) |
+
+To practice, switch to workspace 9 with Super+9, press Super+backslash, and
+open a few windows. Use H/L with Super to navigate horizontally. Press
+Super+backslash again to return to classic tiling. The toggle remembers each
+workspace's layout under =~/.local/state/omarchy/workspace-layouts/= across
+reloads and logins. Switching back may rearrange the previous split tree.
+This is Hyprland's scrolling layout, not a separate Niri session.
+
 * Provisioning a new machine
 
 =./provision= takes a fresh Arch install to this environment end to end:

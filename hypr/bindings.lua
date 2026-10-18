@@ -1,8 +1,21 @@
 -- Published application bindings. These intentionally override any changing
 -- Omarchy defaults and do not install the applications they reference.
 
--- Kill Omarchy's niri-style scrolling layout toggle (default Super+L).
+-- Vim navigation in both dwindle and scrolling, alongside the stock arrows.
+-- Free Omarchy's split/layout keys before assigning directional actions.
+hl.unbind("SUPER + J")
 hl.unbind("SUPER + L")
+for _, nav in ipairs({
+  { key = "H", direction = "l", label = "left" },
+  { key = "J", direction = "d", label = "down" },
+  { key = "K", direction = "u", label = "up" },
+  { key = "L", direction = "r", label = "right" },
+}) do
+  o.bind("SUPER + " .. nav.key, "Focus window " .. nav.label, hl.dsp.focus({ direction = nav.direction }))
+  o.bind("SUPER + SHIFT + " .. nav.key, "Swap window " .. nav.label, hl.dsp.window.swap({ direction = nav.direction }))
+end
+o.bind("SUPER + ALT + J", "Toggle window split", hl.dsp.layout("togglesplit"))
+o.bind("SUPER + backslash", "Toggle workspace layout", "omarchy-hyprland-workspace-layout-toggle")
 
 o.bind("SUPER + RETURN", "Terminal", [=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)"]=])
 -- Caps Lock is mapped to Super in input.lua.
@@ -40,7 +53,7 @@ o.bind("SUPER + CTRL + C", "Capture menu", "omarchy-menu toggle capture")
 o.bind("SUPER + CTRL + H", "Hardware menu", "omarchy-menu toggle hardware")
 o.bind("SUPER + ESCAPE", "System menu", "omarchy-menu toggle system")
 o.bind("XF86PowerOff", "Power menu", "omarchy-menu toggle system", { locked = true })
-o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
+o.bind("SUPER + F1", "Keybindings", "omarchy-menu-keybindings")
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 
 -- Capture and hardware panels.
