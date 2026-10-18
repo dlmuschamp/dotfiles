@@ -68,6 +68,16 @@ The checker now verifies JSON/native/Alacritty consistency, all 15 light colored
 
 A separate actual-config Neovim process was kept running while `theme-colors study-day` refreshed the live desktop. Its existing parent-directory watcher changed function color from `#124B80` to `#0031A9` and applied keyword/function bold without restarting the process. The generated active palette matches the revision, the wallpaper is unchanged, the automatic timer remains active and Hyprland reports no configuration errors. No user editor buffers were closed. Doom loads configuration changes on next startup, or via a narrow reload after loading the new function definitions.
 
+### Rendered outcome check, October 18 at 16:51 local time
+
+Opened a disposable **real Alacritty + real-config Neovim** window at the configured 15 pt, with Python Tree-sitter highlighting a 19-line sample. Queried actual token captures, then captured the window's rendered pixels. Revised keyword, function, string, number, type and comment colors all appeared in the framebuffer, with respectively **1543, 1284, 1464, 168, 712 and 1571 exact-color pixels** in the 958×1168 window crop. Counts are observations from that frame, not stable benchmark assertions.
+
+For a controlled visual comparison in the same disposable process, restaged the previous six syntax foregrounds and normal weights, then captured a second frame. This was a **restaged syntax-only baseline**, not an exact prior desktop snapshot. Visual inspection of both captures showed the intended improvement: blue bold callable names separate clearly from violet type annotations, raspberry bold control flow is prominent without bolding variables, and green string text no longer groups with teal type text. The sample's `Il1`, `O0`, braces, brackets and comparison operators are visibly distinct and unclipped at the current size. This is an assistant observation of the rendered result, not a user eyesight/readability-speed trial.
+
+Artifacts were kept locally in Jcode scratch as `study-revised.png`, `study-prior-syntax.png` and `study-render.log`. The popup visible in both frames is Lazy's temporary configuration-reload notice inside the disposable test editor, not a font/rendering error. That test window was closed afterward without closing user apps or changing the active desktop palette. Auto mode still selected Study Day and Hyprland's error report remained empty.
+
+The retained Neovim test now also parses a real Python buffer and asserts six actual token classifications and their role colors under the installed configuration. It explicitly skips that additional integration part under `-u NONE`, where configured parser/query runtime paths are absent. Both test modes pass. This closes the gap between inspecting highlight definitions and observing them on real code; it still does not certify every language server or determine a universally optimal font/size.
+
 Primary design references:
 - JetBrains Mono's type-design rationale: `https://www.jetbrains.com/lp/mono/`
 - W3C text contrast guidance: `https://www.w3.org/WAI/WCAG22/Understanding/contrast-enhanced.html`
