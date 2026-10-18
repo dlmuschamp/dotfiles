@@ -22,6 +22,9 @@
         },
         {
           "id": "omarchy.workspaces"
+        },
+        {
+          "id": "luciano.scroll-position"
         }
       ],
       "center": [

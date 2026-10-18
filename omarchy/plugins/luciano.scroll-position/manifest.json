@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "luciano.scroll-position",
+  "name": "Scrolling position",
+  "version": "1.0.0",
+  "author": "Luciano",
+  "description": "Clickable window-position strip for the current scrolling workspace",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "Scrolling position",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  }
+}
