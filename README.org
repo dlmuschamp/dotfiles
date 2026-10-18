@@ -65,7 +65,9 @@ occlusion detector: visible means intersecting the monitor viewport.
 
 The widget follows the workspace on its own monitor, responds to compositor
 events, and uses a 1.5-second fallback refresh for pans/layout changes that do
-not emit an event. All source lives in
+not emit an event (5 seconds while hidden). Each query runs one =hyprctl=
+process, with no shell or =jq= pipeline. Marker objects persist through title
+and viewport updates so hover and clicks remain stable. All source lives in
 =omarchy/plugins/luciano.scroll-position/= and is deployed by the existing
 =omarchy= config symlink, without patching Omarchy itself.
 
@@ -80,7 +82,7 @@ discovery. If the QML engine retains an older component, use
 =omarchy-restart-shell=. To remove the indicator, remove its entry from
 =omarchy/shell.json= and run =omarchy-shell shell reloadConfig=.
 
-Validated on 2026-10-18: nine model tests, actual bar-marker click, directional
+Validated on 2026-10-18: eleven model tests, actual bar-marker click, directional
 focus and swap actions, floating exclusion/retiling, dwindle hide/scrolling
 show, window closure/count updates, and fresh shell startup. Multi-monitor
 and rotated/scaled-screen calculations have fixture tests, not physical

@@ -1,5 +1,29 @@
 // Pure geometry model, shared by QML and the Node regression tests.
 // Counts windows, not columns. Stacked windows are ordered top to bottom.
+function parseSnapshot(text) {
+  // hyprctl --batch emits consecutive JSON values, not one JSON array.
+  var values = [], depth = 0, quoted = false, escaped = false, start = -1;
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') quoted = false;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === "[" || c === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === "]" || c === "}") {
+      if (--depth < 0) throw new Error("Unexpected JSON closing bracket");
+      if (depth === 0) values.push(JSON.parse(text.slice(start, i + 1)));
+    } else if (depth === 0 && !/\s/.test(c)) throw new Error("Invalid snapshot output");
+  }
+  if (depth || quoted || values.length !== 4) throw new Error("Incomplete snapshot");
+  return values;
+}
+
 function build(snapshot, screenName) {
   var empty = { scrolling: false, windows: [], index: -1, total: 0, label: "", workspace: null };
   if (!Array.isArray(snapshot) || snapshot.length !== 4) return empty;
@@ -48,4 +72,4 @@ function slice(state, limit) {
     before: start > 0, after: start + count < state.total };
 }
 
-if (typeof module !== "undefined") module.exports = { build: build, focusCommand: focusCommand, slice: slice };
+if (typeof module !== "undefined") module.exports = { build: build, focusCommand: focusCommand, slice: slice, parseSnapshot: parseSnapshot };

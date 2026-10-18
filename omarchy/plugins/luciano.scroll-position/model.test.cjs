@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { build, focusCommand, slice } = require('./Model.js');
+const { build, focusCommand, slice, parseSnapshot } = require('./Model.js');
 
 function fixture() {
   const window = (address, x, y = 30) => ({ address, at: [x, y], size: [400, 600],
@@ -72,4 +72,13 @@ test('bounds marker strip while keeping focus and true total', () => {
 test('click focus accepts only a hexadecimal compositor address', () => {
   assert.equal(focusCommand('0xabc'), 'hl.dsp.focus({ window = "address:0xabc" })');
   assert.equal(focusCommand('0xabc\" }); os.execute(\"bad'), '');
+});
+test('parses native batch JSON including escaped quotes and brackets in titles', () => {
+  const data = fixture();
+  data[1][0].title = 'A "title" with [brackets], {braces}, \\ and\nnewlines';
+  assert.deepEqual(parseSnapshot(data.map(x => JSON.stringify(x, null, 2)).join('\n\n\n')), data);
+});
+test('rejects incomplete and non-JSON batch responses', () => {
+  for (const text of ['', '[]\n{}', 'error', '[]\n[]\n{}\n[', '[] [] {} [] trailing'])
+    assert.throws(() => parseSnapshot(text));
 });
