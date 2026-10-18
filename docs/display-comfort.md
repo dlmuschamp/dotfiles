@@ -2,6 +2,8 @@
 
 **Research baseline, October 18, 2026.** The initial report below preceded implementation. Following your request for automatic switching and a new font, `study-theme.md` documents the implemented day/night schedule and JetBrains Mono NL 15 pt configuration. Hardware and original configuration observations below describe the pre-change baseline.
 
+**Historical baseline:** the palette and typography tables below describe the original proposal. The installed light syntax palette was revised later on October 18 for stronger hue separation and selective bold. Use `study-theme.md` and `display-palette-proposal.json` for current colors, verification and remaining limits.
+
 ## My recommendation in one sentence
 
 Use a **high-contrast light palette for your main daytime homework/email/PDF workflow**, keep a **high-contrast dark alternative for a dimmer room or personal preference**, and retain your familiar **IBM Plex/BlexMono family at a comfortably large size**. Fix faint terminal colors before chasing a different font.

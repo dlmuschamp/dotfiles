@@ -27,6 +27,7 @@
 
 (defvar doom-theme 'doom-one)
 (defvar study-test-loads 0)
+(defvar study-test-font-forms nil)
 (with-temp-buffer
   (insert-file-contents (expand-file-name "doom/config.el" study-test-root))
   (emacs-lisp-mode)
@@ -35,6 +36,11 @@
   (condition-case nil
       (while t
         (let ((form (read (current-buffer))))
+          ;; Capture only the two explicit font declarations, never evaluate
+          ;; private workflows or the rest of the user's configuration.
+          (when (and (eq (car-safe form) 'setq)
+                     (memq (cadr form) '(luciano/ui-font-family doom-font)))
+            (push form study-test-font-forms))
           (when (and (memq (car-safe form) '(defun defvar))
                      (memq (cadr form)
                            '(luciano/omarchy-colors luciano/omarchy-colors-file
@@ -91,31 +97,37 @@
   (should (eq doom-theme 'doom-one-light))
   (should (= study-test-loads 1))
   (should (memq 'doom-one-light custom-enabled-themes))
-  (dolist (entry '((font-lock-keyword-face . "#6C2E91")
-                   (font-lock-function-name-face . "#124B80")
-                   (font-lock-string-face . "#20532E")
-                   (font-lock-constant-face . "#6E3B08")
-                   (font-lock-type-face . "#005055")))
-    (should (equal (study-test-spec 'user (car entry) :foreground) (cdr entry))))
-  (should (equal (study-test-spec 'luciano-study 'org-block :background) "#EDEBE5"))
-  (dolist (entry '((font-lock-doc-face . "#454B54")
-                   (error . "#902030")
-                   (isearch . "#24272E")
-                   (minibuffer-prompt . "#6C2E91")
-                   (company-tooltip . "#24272E")))
+  (dolist (entry '((font-lock-keyword-face . "keywords")
+                   (font-lock-function-name-face . "functions")
+                   (font-lock-string-face . "strings")
+                   (font-lock-constant-face . "numbers")
+                   (font-lock-type-face . "types")))
+    (should (equal (study-test-spec 'user (car entry) :foreground)
+                   (cdr (assoc (cdr entry) (study-test-palette "light"))))))
+  (should (equal (study-test-spec 'luciano-study 'org-block :background)
+                 (cdr (assoc "current_line" (study-test-palette "light")))))
+  (dolist (entry '((font-lock-doc-face . "comments")
+                   (error . "errors")
+                   (isearch . "search_text")
+                   (minibuffer-prompt . "keywords")
+                   (company-tooltip . "text")))
     (should (equal (study-test-spec 'luciano-study (car entry) :foreground)
-                   (cdr entry))))
+                   (cdr (assoc (cdr entry) (study-test-palette "light"))))))
   (study-test-apply (study-test-palette "light"))
   (should (= study-test-loads 1))
   (study-test-apply (study-test-palette "dark"))
   (should (eq doom-theme 'doom-one))
   (should (= study-test-loads 2))
   (should-not (memq 'doom-one-light custom-enabled-themes))
-  (should (equal (study-test-spec 'user 'font-lock-keyword-face :foreground) "#D1B2FA"))
+  (should (equal (study-test-spec 'user 'font-lock-keyword-face :foreground)
+                 (cdr (assoc "keywords" (study-test-palette "dark")))))
   (should (eq (car custom-enabled-themes) 'luciano-study))
-  (should (equal (face-attribute 'org-block :background nil t) "#292F38"))
-  (should (equal (face-attribute 'font-lock-doc-face :foreground nil t) "#B4BCC6"))
-  (should (equal (study-test-spec 'luciano-study 'isearch :foreground) "#1F2329"))
+  (should (equal (face-attribute 'org-block :background nil t)
+                 (cdr (assoc "current_line" (study-test-palette "dark")))))
+  (should (equal (face-attribute 'font-lock-doc-face :foreground nil t)
+                 (cdr (assoc "comments" (study-test-palette "dark")))))
+  (should (equal (study-test-spec 'luciano-study 'isearch :foreground)
+                 (cdr (assoc "search_text" (study-test-palette "dark")))))
   (study-test-apply (study-test-palette "light"))
   (should (= study-test-loads 3))
   (study-test-apply '(("background" . "#1f1f28") ("bright_blue" . "#123456")))
@@ -147,5 +159,66 @@
                        (luciano/omarchy-color "current_line")))
         (should (equal (face-attribute 'font-lock-doc-face :foreground nil t)
                        (luciano/omarchy-color "syntax_comments")))))))
+
+(ert-deftest study-syntax-style-transitions ()
+  "Emphasize structure in both palettes and restore nonstudy face styles."
+  (study-test-reset)
+  ;; A fresh -Q session has no colorscheme. Establish doom-one before taking
+  ;; the nonstudy baseline, exactly as a real Doom session would have it.
+  (study-test-apply (study-test-palette "dark"))
+  (study-test-apply '(("background" . "#1f1f28")))
+  (let* ((faces '(font-lock-keyword-face font-lock-function-name-face
+                  font-lock-comment-face font-lock-comment-delimiter-face
+                  font-lock-doc-face font-lock-builtin-face
+                  font-lock-number-face font-lock-function-call-face
+                  font-lock-variable-use-face font-lock-warning-face error))
+         (baseline
+          (mapcar (lambda (face)
+                    (list face
+                          (face-attribute face :weight nil t)
+                          (face-attribute face :slant nil t)))
+                  faces)))
+    (dolist (mode '("light" "dark" "light" "dark"))
+      (study-test-apply (study-test-palette mode))
+      (dolist (face '(font-lock-keyword-face font-lock-function-name-face
+                      font-lock-function-call-face
+                      font-lock-warning-face error))
+        (should (eq (face-attribute face :weight nil t) 'bold)))
+      (dolist (face '(font-lock-comment-face font-lock-comment-delimiter-face
+                      font-lock-doc-face font-lock-builtin-face
+                      font-lock-number-face
+                      font-lock-variable-use-face))
+        (should (eq (face-attribute face :weight nil t) 'normal)))
+      (dolist (face '(font-lock-comment-face font-lock-comment-delimiter-face
+                      font-lock-doc-face font-lock-builtin-face))
+        (should (eq (face-attribute face :slant nil t) 'normal)))
+      (dolist (entry '((font-lock-builtin-face . "keywords")
+                       (font-lock-number-face . "numbers")
+                       (font-lock-function-call-face . "functions")
+                       (font-lock-variable-use-face . "text")
+                       (font-lock-warning-face . "errors")))
+        (should (equal (face-attribute (car entry) :foreground nil t)
+                       (cdr (assoc (cdr entry) (study-test-palette mode)))))))
+    (study-test-apply '(("background" . "#1f1f28")))
+    (should-not (memq 'luciano-study custom-enabled-themes))
+    (dolist (entry baseline)
+      (should (equal (face-attribute (car entry) :weight nil t) (nth 1 entry)))
+      (should (equal (face-attribute (car entry) :slant nil t) (nth 2 entry))))))
+
+(ert-deftest study-font-declarations ()
+  "Keep the explicit non-ligature regular 15pt font without loading Doom."
+  (should (= (length study-test-font-forms) 2))
+  (mapc (lambda (form) (eval form t)) (reverse study-test-font-forms))
+  (should (equal luciano/ui-font-family "JetBrainsMonoNL Nerd Font Mono"))
+  (should (= luciano/ui-font-height 150))
+  (should (equal (format "%s" (font-get doom-font :family)) luciano/ui-font-family))
+  (should (= (font-get doom-font :size) 15.0))
+  (should (eq (font-get doom-font :weight) 'regular))
+  (should (equal (format "%s" (font-get doom-variable-pitch-font :family)) "IBM Plex Sans"))
+  (should (= (font-get doom-variable-pitch-font :size) 15.0))
+  (should (equal (format "%s" (font-get doom-serif-font :family)) "IBM Plex Serif"))
+  (should (= (font-get doom-serif-font :size) 15.0))
+  (should (equal (format "%s" (font-get doom-big-font :family)) luciano/ui-font-family))
+  (should (= (font-get doom-big-font :size) 16.0)))
 
 (ert-run-tests-batch-and-exit "^study-")

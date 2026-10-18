@@ -5,6 +5,7 @@
 (setq luciano/ui-font-family "JetBrainsMonoNL Nerd Font Mono"
       luciano/ui-font-height 150)
 (setq doom-font (font-spec :family luciano/ui-font-family
+                           :weight 'regular
                            :size (/ luciano/ui-font-height 10.0))
       doom-variable-pitch-font (font-spec :family "IBM Plex Sans"
                                           :size (/ luciano/ui-font-height 10.0))
@@ -3221,13 +3222,21 @@ SELECTION and SELECTION-FG are the exact palette selection colors."
            (mapcar
             (lambda (spec) (list (car spec) (list (list t (cdr spec)))))
             (list
-             `(font-lock-doc-face :foreground ,muted :background unspecified)
+             ;; Weight is a second cue beyond hue. Keep it selective so code
+             ;; structure stands out without turning every token bold.
+             `(font-lock-keyword-face :weight bold)
+             `(font-lock-function-name-face :weight bold)
+             `(font-lock-builtin-face :weight normal :slant normal)
+             `(font-lock-comment-face :weight normal :slant normal)
+             `(font-lock-doc-face :foreground ,muted :background unspecified
+                                  :weight normal :slant normal)
              `(font-lock-doc-markup-face :foreground ,keyword)
-             `(font-lock-comment-delimiter-face :foreground ,muted)
-             `(font-lock-number-face :foreground ,number)
-             `(font-lock-function-call-face :foreground ,function)
-             `(font-lock-variable-use-face :foreground ,fg)
-             `(font-lock-warning-face :foreground ,error-color)
+             `(font-lock-comment-delimiter-face :foreground ,muted
+                                                :weight normal :slant normal)
+             `(font-lock-number-face :foreground ,number :weight normal)
+             `(font-lock-function-call-face :foreground ,function :weight bold)
+             `(font-lock-variable-use-face :foreground ,fg :weight normal)
+             `(font-lock-warning-face :foreground ,error-color :weight bold)
              `(org-block :background ,bg-alt :foreground ,fg :extend t)
              `(org-block-begin-line :background ,bg-alt :foreground ,muted :extend t)
              `(org-block-end-line :background ,bg-alt :foreground ,muted :extend t)

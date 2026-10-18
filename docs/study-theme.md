@@ -17,6 +17,63 @@ Existing terminal windows should reload their theme and font configuration. Appl
 
 **Reopen already-running Neovim/Doom once after this installation** to load the new configuration. Subsequent day/night switches are automatic. Neovim now watches Omarchy's parent directory, so atomic theme replacements are detected even when the loader file itself is unchanged.
 
+## Syntax discrimination follow-up, October 18 at 16:49 local time
+
+The original 7:1 checks established text/background contrast, not how easily syntax roles could be distinguished. In response to the user's report that colors looked too similar, Study Day now uses a more chromatic palette and additional weight cues:
+
+| Role | Light color | Editor treatment |
+|---|---|---|
+| Keywords | Raspberry `#8F005F` | Bold |
+| Functions and calls | Blue `#0031A9` | Bold |
+| Strings | Green `#005700` | Regular |
+| Numbers/constants | Ochre-brown `#684200` | Regular |
+| Types | Violet `#5F00A5` | Regular |
+| Errors | Red `#990000` | Bold indicators, existing diagnostic underlines |
+| Comments | Slate `#454B54` | Upright, normal weight, not faint |
+| Variables/operators/punctuation | `#24272E` | Neutral, regular |
+
+Both study editors have selective keyword/function emphasis. Night hues are unchanged. The ANSI cyan slot follows the type role, so in Study Day it is deliberately violet rather than literal cyan. This avoids the old green/teal grouping but is not a guarantee that every third-party TUI will respect semantic roles.
+
+Selection is now blue `#ADC8E6`; search matches are gold `#EBC45C`. Their background contrasts against the canvas increased from **1.19 to 1.58** and **1.27 to 1.53**, respectively. These are visibility improvements, not claims of a 3:1 non-text contrast certification. Selected/search text remains dark and exceeds 7:1.
+
+All eight listed text roles still exceed **7:1** on both the canvas and current line. Light syntax/comments range from **8.07–9.58:1** on the canvas and **7.38–8.75:1** on the current line. Main text is **13.72:1** on the canvas.
+
+The checker now also compares colors in **Oklab**, rather than misusing luminance contrast as a hue metric. The closest pair among the six colored roles is now about **0.123** in that model, versus about **0.067** originally. Green strings vs violet types move from **0.067 to 0.342**. Its `0.10` minimum is a project-specific regression guard, not an accessibility standard or proof of personal performance. Normal-vision modeling cannot certify color-blind differentiation. Bold structure and diagnostic underlines supply extra cues.
+
+### Font and size decision
+
+Keep **JetBrainsMonoNL Nerd Font Mono Regular at 15 pt**, with genuine bold faces for emphasis and no programming ligatures. This is a deliberate practical choice, not a finding that any font is universally optimal. JetBrains documents its increased lowercase height and distinct symbol design. Changing to another fashionable family without a reported legibility issue would not establish an improvement.
+
+Verified on the actual **1920×1200, scale-1** laptop display with a real Alacritty startup:
+
+- Fontconfig resolves the requested regular and bold faces, without substituting BlexMono.
+- Alacritty loads Regular, Bold, Italic and Bold Italic without font/config warnings.
+- **15 pt renders as 20 px**, with **12×27 px terminal cells** at the current scale. These are measured rasterizer metrics, not a claim that the physical letters equal 15 printer points.
+- The settings allow roughly 157 terminal columns by 42 rows in a full-width/maximized workspace after typical padding and panel space. Actual tiling and UI chrome reduce this.
+- Doom uses regular weight explicitly and the corresponding 150 face height. Its GUI rendering has not been measured because no Emacs GUI is running. Terminal Neovim uses Alacritty's font/size, not a separate GUI font.
+
+A larger size is appropriate if reading requires leaning forward or small punctuation is hard to distinguish. A full personal reading trial is still necessary to choose between 15 and 16 pt. No screen brightness, scale, proportional document font or physical display calibration was changed.
+
+### Verification of this revision
+
+```sh
+python3 docs/check-display-palette.py
+PYTHONDONTWRITEBYTECODE=1 python3 docs/test-study-theme.py
+nvim --headless -u NONE '+luafile docs/test-study-syntax.lua'
+nvim --headless '+luafile docs/test-study-syntax.lua'
+emacs --batch -Q -l docs/test-doom-study.el
+```
+
+The checker now verifies JSON/native/Alacritty consistency, all 15 light colored-role pairs in Oklab, stronger selection/search surfaces and the existing text/background constraints. Neovim tests verify legacy, Tree-sitter and LSP highlight mappings, weights, diagnostics, selection/search, terminal entries and five day/night transitions. These verify highlight definitions, not every language server's custom semantic modifiers.
+
+A separate actual-config Neovim process was kept running while `theme-colors study-day` refreshed the live desktop. Its existing parent-directory watcher changed function color from `#124B80` to `#0031A9` and applied keyword/function bold without restarting the process. The generated active palette matches the revision, the wallpaper is unchanged, the automatic timer remains active and Hyprland reports no configuration errors. No user editor buffers were closed. Doom loads configuration changes on next startup, or via a narrow reload after loading the new function definitions.
+
+Primary design references:
+- JetBrains Mono's type-design rationale: `https://www.jetbrains.com/lp/mono/`
+- W3C text contrast guidance: `https://www.w3.org/WAI/WCAG22/Understanding/contrast-enhanced.html`
+- Björn Ottosson's Oklab definition: `https://bottosson.github.io/posts/oklab/`
+- Modus documentation on optional bold constructs: `https://protesilaos.com/emacs/modus-themes`
+
 ## Controls
 
 ```sh
