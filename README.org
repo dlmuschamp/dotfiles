@@ -36,6 +36,19 @@ shortcuts, with classic =dwindle= tiling remaining the default.
 | Super + F1 | Show desktop keybindings |
 | Super + Alt + K | Show tmux keybindings (unchanged) |
 
+Hold Super+H/J/K/L (or Super+arrows) to keep navigating, Super+Return to
+spawn multiple terminals, or Super+W to close successive focused windows.
+The existing 600 ms keyboard repeat delay is retained. Navigation is capped
+at roughly 8 steps/second, terminal launch and close at roughly 3/second,
+without slowing ordinary typing. Releasing the key stops repetition and
+resets the cooldown for deliberate quick taps. Close uses the normal app
+close request, not force-kill, but holding it can still close unsaved work
+in apps without confirmation. Swap shortcuts are still single-action.
+
+Inner gaps, outer gaps and compositor borders are zero. New scrolling
+columns default to exactly half the viewport width. Existing manually sized
+columns retain their sizes until resized or recreated.
+
 To practice, switch to workspace 9 with Super+9, press Super+backslash, and
 open a few windows. Use H/L with Super to navigate horizontally. Press
 Super+backslash again to return to classic tiling. The toggle remembers each

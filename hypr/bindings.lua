@@ -5,19 +5,22 @@
 -- Free Omarchy's split/layout keys before assigning directional actions.
 hl.unbind("SUPER + J")
 hl.unbind("SUPER + L")
+local repeat_bind = require("hypr.repeat_bind")
 for _, nav in ipairs({
-  { key = "H", direction = "l", label = "left" },
-  { key = "J", direction = "d", label = "down" },
-  { key = "K", direction = "u", label = "up" },
-  { key = "L", direction = "r", label = "right" },
+  { key = "H", arrow = "LEFT", direction = "l", label = "left" },
+  { key = "J", arrow = "DOWN", direction = "d", label = "down" },
+  { key = "K", arrow = "UP", direction = "u", label = "up" },
+  { key = "L", arrow = "RIGHT", direction = "r", label = "right" },
 }) do
-  o.bind("SUPER + " .. nav.key, "Focus window " .. nav.label, hl.dsp.focus({ direction = nav.direction }))
+  repeat_bind("SUPER + " .. nav.key, "Focus window " .. nav.label, hl.dsp.focus({ direction = nav.direction }), 120)
+  repeat_bind("SUPER + " .. nav.arrow, "Focus window " .. nav.label, hl.dsp.focus({ direction = nav.direction }), 120)
   o.bind("SUPER + SHIFT + " .. nav.key, "Swap window " .. nav.label, hl.dsp.window.swap({ direction = nav.direction }))
 end
 o.bind("SUPER + ALT + J", "Toggle window split", hl.dsp.layout("togglesplit"))
 o.bind("SUPER + backslash", "Toggle workspace layout", "omarchy-hyprland-workspace-layout-toggle")
 
-o.bind("SUPER + RETURN", "Terminal", [=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)"]=])
+repeat_bind("SUPER + RETURN", "Terminal (hold to repeat)", hl.dsp.exec_cmd([=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)"]=]), 350)
+repeat_bind("SUPER + W", "Close window (hold to repeat)", hl.dsp.window.close(), 350)
 -- Caps Lock is mapped to Super in input.lua.
 o.bind("SUPER + semicolon", "Jcode", [=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)" "$HOME/.local/bin/jcode"]=])
 o.bind("SUPER + ALT + RETURN", "Tmux", [=[uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)" bash -c "tmux attach || tmux new -s Work"]=])

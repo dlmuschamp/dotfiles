@@ -3,9 +3,14 @@ hl.config({
   general = {
     gaps_in = 0,
     gaps_out = 0,
-    border_size = 1,
+    border_size = 0,
     -- Default to classic tiling; Super+backslash toggles each workspace separately.
     layout = "dwindle",
+  },
+
+  scrolling = {
+    -- Two new columns exactly fill the viewport, without Omarchy's 49% peek.
+    column_width = 0.5,
   },
 
   decoration = {
