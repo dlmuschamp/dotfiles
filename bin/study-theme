@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Coordinate readable Omarchy themes without changing the wallpaper."""
+import argparse
+import datetime
+import fcntl
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tomllib
+
+
+def minutes(value):
+    if not isinstance(value, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value):
+        raise ValueError(f"Invalid time {value!r}, expected HH:MM")
+    hour, minute = map(int, value.split(":"))
+    return hour * 60 + minute
+
+
+def scheduled_mode(now, day_start, night_start):
+    day, night, current = map(minutes, (day_start, night_start, now))
+    if day == night:
+        raise ValueError("Day and night start times must differ")
+    daytime = day <= current < night if day < night else current >= day or current < night
+    return "day" if daytime else "night"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", nargs="?", default="status",
+                        choices=["apply", "auto", "day", "night", "off", "status"])
+    parser.add_argument("--at", metavar="HH:MM", help="Preview schedule at a local time, without changes")
+    args = parser.parse_args()
+    home = Path.home()
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
+    state_home = Path(os.environ.get("XDG_STATE_HOME", home / ".local/state"))
+    config = tomllib.loads((config_home / "omarchy/study-theme.toml").read_text())
+    now = args.at or datetime.datetime.now().strftime("%H:%M")
+    scheduled = scheduled_mode(now, config["day_start"], config["night_start"])
+    if args.at:
+        print(config[f"{scheduled}_theme"])
+        return 0
+
+    state = state_home / "study-theme"
+    state.mkdir(parents=True, exist_ok=True)
+    # Serialize the timer and manual commands through all theme hooks.
+    with (state / "lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        override = state / "override"
+        if args.command == "auto":
+            override.unlink(missing_ok=True)
+        elif args.command in ("day", "night", "off"):
+            override.write_text(args.command + "\n")
+        mode = override.read_text().strip() if override.exists() else "auto"
+        if mode not in ("auto", "day", "night", "off"):
+            raise ValueError(f"Invalid override {mode!r}. Run study-theme auto to reset it.")
+        selected = scheduled if mode == "auto" else mode
+        target = config[f"{selected}_theme"] if selected != "off" else None
+        current_file = state_home / "omarchy/current/theme.name"
+        current = current_file.read_text().strip() if current_file.exists() else "unknown"
+        if args.command == "status":
+            print(f"Mode: {mode} | Current: {current} | Target: {target or 'unchanged'}")
+            print(f"Local schedule: day {config['day_start']}, night {config['night_start']}")
+            return 0
+        if target is None or target == current:
+            return 0
+        env = os.environ.copy()
+        omarchy = env.setdefault("OMARCHY_PATH", str(home / ".local/share/omarchy"))
+        env["PATH"] = f"{omarchy}/bin:{home}/.local/bin:" + env.get("PATH", "/usr/bin")
+        env["OMARCHY_THEME_SKIP_BACKGROUND"] = "1"
+        # User services can start before the compositor exists. Retry next minute.
+        if not env.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            print("No graphical session yet, deferring theme switch")
+            return 0
+        probe = subprocess.run(["hyprctl", "-j", "monitors"], env=env,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        if probe.returncode:
+            print("Compositor unavailable, deferring theme switch")
+            return 0
+        result = subprocess.run(["omarchy-theme-set", target], env=env, timeout=100)
+        if result.returncode:
+            raise RuntimeError(f"Theme switch failed with exit code {result.returncode}")
+        if not current_file.exists() or current_file.read_text().strip() != target:
+            raise RuntimeError("Theme command did not select the expected theme")
+        print(f"Applied {target} at {now}, wallpaper preserved")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as error:
+        print(f"study-theme: {error}", file=sys.stderr)
+        sys.exit(1)

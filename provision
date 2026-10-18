@@ -122,6 +122,7 @@ step 'Deploying configuration'
 step 'Enabling the weekly update check'
 systemctl --user daemon-reload
 systemctl --user enable --now dotfiles-update.timer
+systemctl --user enable --now study-theme.timer
 printf 'Next run: %s\n' \
   "$(systemctl --user list-timers dotfiles-update.timer --no-pager 2>/dev/null | sed -n 2p || echo unknown)"
 

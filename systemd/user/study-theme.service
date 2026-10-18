@@ -1,0 +1,7 @@
+[Unit]
+Description=Apply readable study theme for the current local time
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/study-theme apply
+TimeoutStartSec=120

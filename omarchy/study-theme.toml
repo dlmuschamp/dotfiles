@@ -1,0 +1,5 @@
+# Local laptop time. The timer catches up after login/suspend within one minute.
+day_start = "07:00"
+night_start = "20:00"
+day_theme = "study-day"
+night_theme = "study-night"

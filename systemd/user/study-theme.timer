@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep study theme synchronized with local daytime/nighttime
+
+[Timer]
+OnStartupSec=20s
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=true
+Unit=study-theme.service
+
+[Install]
+WantedBy=timers.target

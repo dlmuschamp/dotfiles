@@ -1,0 +1,51 @@
+# Native template override: exact proposal search pairs and report ANSI neutrals.
+[window]
+opacity = 1.0
+
+[colors.primary]
+background = "#1F2329"
+foreground = "#E2E5E9"
+
+[colors.cursor]
+text = "#1F2329"
+cursor = "#E2E5E9"
+
+[colors.vi_mode_cursor]
+text = "#1F2329"
+cursor = "#E2E5E9"
+
+[colors.search.matches]
+foreground = "#1F2329"
+background = "#E9BD7A"
+
+[colors.search.focused_match]
+foreground = "#1F2329"
+background = "#E9BD7A"
+
+[colors.footer_bar]
+foreground = "#E2E5E9"
+background = "#292F38"
+
+[colors.selection]
+text = "#E2E5E9"
+background = "#35465C"
+
+[colors.normal]
+black = "#15181D"
+red = "#FFADB0"
+green = "#A8C98B"
+yellow = "#E9BD7A"
+blue = "#9FC3FA"
+magenta = "#D1B2FA"
+cyan = "#7AC9C2"
+white = "#E2E5E9"
+
+[colors.bright]
+black = "#B4BCC6"
+red = "#FFADB0"
+green = "#A8C98B"
+yellow = "#E9BD7A"
+blue = "#9FC3FA"
+magenta = "#D1B2FA"
+cyan = "#7AC9C2"
+white = "#E2E5E9"

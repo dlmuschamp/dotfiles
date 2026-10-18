@@ -1,6 +1,6 @@
 # A readable daily-study display setup for your Yoga
 
-**Recommendation, researched October 18, 2026. No active settings have been changed.**
+**Research baseline, October 18, 2026.** The initial report below preceded implementation. Following your request for automatic switching and a new font, `study-theme.md` documents the implemented day/night schedule and JetBrains Mono NL 15 pt configuration. Hardware and original configuration observations below describe the pre-change baseline.
 
 ## My recommendation in one sentence
 

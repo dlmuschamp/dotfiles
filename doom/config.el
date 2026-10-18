@@ -1,11 +1,9 @@
 ;;; $DOOMDIR/config.el -*- lexical-binding: t; -*-
 
-;; BlexMono = IBM Plex Mono (Nerd Font).
-;; Emacs GUI pts render larger than Alacritty for the same number — at
-;; "14" Doom showed ~35 lines while nvim@14 showed ~41. Height 122
-;; (~12.2pt) lands near ~40 lines so both editors match visually.
-(setq luciano/ui-font-family "BlexMono Nerd Font Mono"
-      luciano/ui-font-height 144) ; 12.2pt ≈ Alacritty 14 visually on this display
+;; Clean, non-ligature monospace at 15pt. Keep the Plex proportional fonts.
+;; Emacs face heights use tenths of a point, independently of terminal sizing.
+(setq luciano/ui-font-family "JetBrainsMonoNL Nerd Font Mono"
+      luciano/ui-font-height 150)
 (setq doom-font (font-spec :family luciano/ui-font-family
                            :size (/ luciano/ui-font-height 10.0))
       doom-variable-pitch-font (font-spec :family "IBM Plex Sans"
@@ -19,7 +17,7 @@
                                (/ luciano/ui-font-height 10.0))))
 
 (defun luciano/confirm-ui-font ()
-  "Apply calibrated UI font (matches Alacritty 14 by line density)."
+  "Apply the configured 15pt study font to default and fixed-pitch faces."
   (when (display-graphic-p)
     (set-face-attribute 'default nil
                         :family luciano/ui-font-family
@@ -3124,8 +3122,8 @@ Use SPC q q (or :qa) to leave Emacs."
 ;; neovim.lua / alacritty.toml). Doom mirrors that palette — including
 ;; background — so terminal, nvim, and Emacs feel like one system.
 ;;
-;; Flat canvas (solaire off). Prefer bright_* ANSI slots when the base
-;; hue is too dim to read on dark themes.
+;; Flat canvas (solaire off). Study palettes supply exact syntax roles and
+;; select a matching light/dark base. Other palettes retain the ANSI mapping.
 (defvar luciano/omarchy-colors nil
   "Alist of color keys from the active Omarchy/Aether colors.toml.")
 
@@ -3138,6 +3136,18 @@ Use SPC q q (or :qa) to leave Emacs."
 
 (defvar luciano/omarchy-colors-watch nil
   "file-notify descriptor for live Aether reloads.")
+
+(defvar luciano/omarchy-applying-theme nil
+  "Non-nil while applying a palette, guarding nested theme-load hooks.")
+
+(defvar luciano/omarchy-study-base nil
+  "Last study base theme, or nil when using the legacy palette mapping.")
+
+;; A non-colorscheme theme keeps study-only overrides reversible. In
+;; particular, do not put these in the higher-priority persistent user theme.
+(unless (custom-theme-p 'luciano-study)
+  (custom-declare-theme 'luciano-study 'luciano-study
+                        "Additional readable study palette faces."))
 
 ;; Solaire paints "real" vs side buffers differently; that was the mismatch.
 (after! solaire-mode
@@ -3167,23 +3177,128 @@ Use SPC q q (or :qa) to leave Emacs."
   "Return Omarchy color KEY or DEFAULT."
   (or (cdr (assoc key luciano/omarchy-colors)) default))
 
+(defun luciano/omarchy-syntax-color (role default)
+  "Return exact syntax ROLE from a study palette, or DEFAULT."
+  (or (luciano/omarchy-color (concat "syntax_" role))
+      (luciano/omarchy-color role)
+      default))
+
+(defun luciano/omarchy-select-base (background)
+  "Select a study base matching BACKGROUND, without repeated theme loads."
+  (let* ((study (luciano/omarchy-color "study_background"))
+         (rgb (and study (color-values background)))
+         (light (and rgb (> (+ (* 0.2126 (nth 0 rgb))
+                               (* 0.7152 (nth 1 rgb))
+                               (* 0.0722 (nth 2 rgb)))
+                            (* 0.5 65535))))
+         (base (if light 'doom-one-light 'doom-one)))
+    (when (or study luciano/omarchy-study-base)
+      (unless (memq base custom-enabled-themes)
+        ;; Do not leave a dark colorscheme underneath the light base.
+        (dolist (theme '(doom-one doom-one-light))
+          (when (memq theme custom-enabled-themes) (disable-theme theme)))
+        (load-theme base t))
+      (setq doom-theme base
+            luciano/omarchy-study-base (and study base)))
+    (unless study (disable-theme 'luciano-study))
+    study))
+
+(defun luciano/apply-study-theme-faces (bg bg-alt fg muted selection selection-fg)
+  "Apply reversible study faces using BG, BG-ALT, FG and MUTED.
+SELECTION and SELECTION-FG are the exact palette selection colors."
+  (let ((keyword (luciano/omarchy-syntax-color "keywords" fg))
+        (function (luciano/omarchy-syntax-color "functions" fg))
+        (string (luciano/omarchy-syntax-color "strings" fg))
+        (number (luciano/omarchy-syntax-color "numbers" fg))
+        (error-color (luciano/omarchy-syntax-color "errors" fg))
+        (search-bg (luciano/omarchy-color "search_background" selection))
+        (search-fg (luciano/omarchy-color "search_text" fg)))
+    ;; Disabling a theme retains its settings but removes per-face entries.
+    ;; Rebuild our complete settings list to avoid accumulating stale copies
+    ;; that enable-theme could replay after the current palette.
+    (put 'luciano-study 'theme-settings nil)
+    (apply #'custom-theme-set-faces 'luciano-study
+           (mapcar
+            (lambda (spec) (list (car spec) (list (list t (cdr spec)))))
+            (list
+             `(font-lock-doc-face :foreground ,muted :background unspecified)
+             `(font-lock-doc-markup-face :foreground ,keyword)
+             `(font-lock-comment-delimiter-face :foreground ,muted)
+             `(font-lock-number-face :foreground ,number)
+             `(font-lock-function-call-face :foreground ,function)
+             `(font-lock-variable-use-face :foreground ,fg)
+             `(font-lock-warning-face :foreground ,error-color)
+             `(org-block :background ,bg-alt :foreground ,fg :extend t)
+             `(org-block-begin-line :background ,bg-alt :foreground ,muted :extend t)
+             `(org-block-end-line :background ,bg-alt :foreground ,muted :extend t)
+             `(org-code :background unspecified :foreground ,string)
+             `(org-verbatim :background unspecified :foreground ,string)
+             `(org-table :foreground ,fg)
+             `(org-document-title :foreground ,function :weight bold)
+             `(org-document-info :foreground ,fg)
+             `(org-document-info-keyword :foreground ,muted)
+             `(org-meta-line :foreground ,muted)
+             `(org-special-keyword :foreground ,muted)
+             `(org-todo :foreground ,error-color :weight bold)
+             `(org-done :foreground ,string :weight bold)
+             `(minibuffer-prompt :foreground ,keyword :weight bold)
+             `(shadow :foreground ,muted)
+             `(error :foreground ,error-color :weight bold)
+             `(warning :foreground ,number :weight bold)
+             `(success :foreground ,string :weight bold)
+             `(isearch :background ,search-bg :foreground ,search-fg :weight bold)
+             `(lazy-highlight :background ,search-bg :foreground ,search-fg)
+             `(match :background ,search-bg :foreground ,search-fg)
+             `(isearch-fail :background ,error-color :foreground ,bg)
+             `(query-replace :background ,search-bg :foreground ,search-fg)
+             `(show-paren-match :background ,selection :foreground ,selection-fg :weight bold)
+             `(show-paren-mismatch :background ,error-color :foreground ,bg)
+             `(completions-common-part :foreground ,function :weight bold)
+             `(completions-first-difference :foreground ,keyword)
+             `(completions-annotations :foreground ,muted)
+             `(orderless-match-face-0 :foreground ,function :weight bold)
+             `(orderless-match-face-1 :foreground ,keyword :weight bold)
+             `(orderless-match-face-2 :foreground ,string :weight bold)
+             `(orderless-match-face-3 :foreground ,number :weight bold)
+             `(corfu-annotations :foreground ,muted)
+             `(corfu-border :background ,muted)
+             `(company-tooltip :background ,bg :foreground ,fg)
+             `(company-tooltip-selection :background ,selection :foreground ,selection-fg)
+             `(company-tooltip-common :foreground ,function :weight bold)
+             `(company-tooltip-annotation :foreground ,muted)
+             `(company-preview :background ,bg-alt :foreground ,muted)
+             `(eldoc-box-body :background ,bg-alt :foreground ,fg)
+             `(eldoc-box-border :background ,muted)
+             `(flycheck-error :underline (:style wave :color ,error-color))
+             `(flycheck-warning :underline (:style wave :color ,number))
+             `(flymake-error :underline (:style wave :color ,error-color))
+             `(flymake-warning :underline (:style wave :color ,number)))))
+    ;; Loading the other base moves it above existing enabled themes.
+    (unless (eq (car custom-enabled-themes) 'luciano-study)
+      (enable-theme 'luciano-study))))
+
 (defun luciano/apply-omarchy-theme-faces (&rest _)
   "Restyle Doom to match the active Aether/Omarchy palette (incl. background)."
+  (unless luciano/omarchy-applying-theme
+   (let ((luciano/omarchy-applying-theme t))
   (luciano/load-omarchy-colors)
   (let* ((bg      (or (luciano/omarchy-color "background")
                       (luciano/omarchy-color "bg")
                       "#1f1f28"))
-         (bg-alt  (or (luciano/omarchy-color "lighter_background")
+         (bg-alt  (or (luciano/omarchy-color "current_line")
+                      (luciano/omarchy-color "lighter_background")
                       (luciano/omarchy-color "lighter_bg")
                       (luciano/omarchy-color "selection")
                       "#35353e"))
          (chrome  (or (luciano/omarchy-color "dark_background")
                       (luciano/omarchy-color "dark_bg")
                       bg))
-         (fg      (or (luciano/omarchy-color "foreground")
+         (fg      (or (luciano/omarchy-color "text")
+                      (luciano/omarchy-color "foreground")
                       (luciano/omarchy-color "fg")
                       "#dcd7ba"))
-         (fg-dim  (or (luciano/omarchy-color "dark_foreground")
+         (fg-dim  (or (luciano/omarchy-syntax-color "comments" nil)
+                      (luciano/omarchy-color "dark_foreground")
                       (luciano/omarchy-color "dark_fg")
                       "#a5a18c"))
          (accent  (or (luciano/omarchy-color "accent")
@@ -3209,8 +3324,14 @@ Use SPC q q (or :qa) to leave Emacs."
          (region-bg (or (luciano/omarchy-color "selection")
                         (luciano/omarchy-color "selection_background")
                         bg-alt))
-         (region-fg (or (luciano/omarchy-color "selection_foreground") fg)))
-    (custom-set-faces!
+         (region-fg (or (luciano/omarchy-color "selection_text")
+                        (luciano/omarchy-color "selection_foreground") fg))
+         (study (luciano/omarchy-select-base bg)))
+    ;; Apply immediately, rather than registering a new customize hook with
+    ;; captured colors on every file-notify event.
+    (apply #'custom-theme-set-faces 'user
+     (mapcar (lambda (spec) (list (car spec) (list (list t (cdr spec)))))
+      (list
       `(default :background ,bg :foreground ,fg)
       `(fringe :background ,bg)
       `(solaire-default-face :background ,bg :foreground ,fg)
@@ -3220,15 +3341,15 @@ Use SPC q q (or :qa) to leave Emacs."
       `(solaire-mode-line-inactive-face :background ,chrome :foreground ,fg-dim)
       `(hl-line :background ,bg-alt)
       `(region :background ,region-bg :foreground ,region-fg)
-      `(cursor :background ,accent)
+      `(cursor :background ,(luciano/omarchy-color "cursor" accent))
       `(font-lock-comment-face :foreground ,fg-dim)
-      `(font-lock-keyword-face :foreground ,blue)
-      `(font-lock-function-name-face :foreground ,cyan)
-      `(font-lock-string-face :foreground ,green)
-      `(font-lock-constant-face :foreground ,orange)
+      `(font-lock-keyword-face :foreground ,(luciano/omarchy-syntax-color "keywords" blue))
+      `(font-lock-function-name-face :foreground ,(luciano/omarchy-syntax-color "functions" cyan))
+      `(font-lock-string-face :foreground ,(luciano/omarchy-syntax-color "strings" green))
+      `(font-lock-constant-face :foreground ,(luciano/omarchy-syntax-color "numbers" orange))
       `(font-lock-variable-name-face :foreground ,fg)
-      `(font-lock-type-face :foreground ,yellow)
-      `(font-lock-builtin-face :foreground ,magenta)
+      `(font-lock-type-face :foreground ,(luciano/omarchy-syntax-color "types" yellow))
+      `(font-lock-builtin-face :foreground ,(luciano/omarchy-syntax-color "keywords" magenta))
       `(mode-line :background ,chrome :foreground ,fg :box nil)
       `(mode-line-inactive :background ,chrome :foreground ,fg-dim :box nil)
       `(mode-line-active :background ,chrome :foreground ,fg :box nil)
@@ -3270,8 +3391,12 @@ Use SPC q q (or :qa) to leave Emacs."
       `(magit-section-highlight :background ,bg-alt)
       `(corfu-default :background ,bg :foreground ,fg)
       `(corfu-current :background ,bg-alt :foreground ,accent)
-      `(vertico-current :background ,bg-alt))
-    (message "Aether theme → bg %s / fg %s" bg fg)))
+      `(vertico-current :background ,bg-alt))))
+    (when study
+      (luciano/apply-study-theme-faces bg bg-alt fg fg-dim region-bg region-fg))
+    ;; Recalculating the default face must not undo the chosen GUI font.
+    (when (fboundp 'luciano/confirm-ui-font) (luciano/confirm-ui-font))
+    (message "Aether theme → bg %s / fg %s" bg fg)))))
 
 (defun luciano/watch-omarchy-theme ()
   "Reload Doom faces when Aether/Omarchy swaps the current theme.
