@@ -79,3 +79,9 @@ The contrast checker covers the explicit palette pairs, not every plugin, applic
 - A real-config headless Neovim instance detected both live switches through the filesystem watcher and reported the exact expected background/comment colors. A pre-existing LazyReload-only approach failed this test and was repaired.
 - Two retained Emacs tests pass against installed Doom themes and real palette files, including repeated light/dark transitions, nested hooks, and return to non-study themes. No live GUI Emacs instance was running, so that GUI path was not tested.
 - The user timer is enabled and active. Suspend/resume and an overnight physical-use session have not been exercised. Initial state after testing is automatic mode with Study Night selected.
+
+### Outcome follow-up, October 18 at 03:33 local time
+
+The live generated terminal palette improves three measured contrast weaknesses versus the recorded pre-change colors: default text **11.26:1 → 12.49:1**, ANSI bright-black **1.38:1 → 8.23:1**, and ANSI red **3.22:1 → 8.91:1**. These comparisons use actual installed palette values, not just the proposal file. They establish improved text/background contrast, not proven personal comfort or reduced eyestrain.
+
+To exercise automatic application rather than only manual switching, I deliberately selected Study Day while auto mode called for night, then invoked the actual systemd service. It selected Study Night, restored the desktop dark preference, and preserved the wallpaper. The service journal records `Applied study-night at 03:33` with success. Independent scheduled executions at 03:32 and 03:33 also completed successfully. This verifies the scheduler's executor and ongoing timer operation, without changing the system clock or claiming a tested overnight session.
