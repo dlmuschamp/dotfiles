@@ -45,8 +45,9 @@ resets the cooldown for deliberate quick taps. Close uses the normal app
 close request, not force-kill, but holding it can still close unsaved work
 in apps without confirmation. Swap shortcuts are still single-action.
 
-Inner gaps, outer gaps and compositor borders are zero. New scrolling
-columns default to exactly half the viewport width. Existing manually sized
+Inner and outer gaps are zero, with the original 1-pixel theme-colored
+borders retained. New scrolling columns default to half the viewport width.
+Existing manually sized
 columns retain their sizes until resized or recreated.
 
 To practice, switch to workspace 9 with Super+9, press Super+backslash, and
