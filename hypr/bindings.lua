@@ -1,6 +1,17 @@
 -- Published application bindings. These intentionally override any changing
 -- Omarchy defaults and do not install the applications they reference.
 
+-- Use workspace fullscreen rather than expanding a scrolling column. Expanding
+-- the column scrolls it to the left and loses its old viewport on exit.
+for _, fullscreen in ipairs({
+  { keys = "SUPER + F", description = "Full screen", mode = "fullscreen" },
+  { keys = "SUPER + ALT + F", description = "Full width", mode = "maximized" },
+}) do
+  hl.unbind(fullscreen.keys)
+  o.bind(fullscreen.keys, fullscreen.description,
+    hl.dsp.window.fullscreen({ mode = fullscreen.mode, layout_aware = false }))
+end
+
 -- Vim navigation in both dwindle and scrolling, alongside the stock arrows.
 -- Free Omarchy's split/layout keys before assigning directional actions.
 hl.unbind("SUPER + J")
