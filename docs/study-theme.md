@@ -92,7 +92,28 @@ Study Night now uses more distinct pink keywords, icy-blue functions, green stri
 
 The checker applies the same minimum 0.10 pairwise Oklab syntax-distance guard to both modes, replacing night's weaker 0.075 threshold. It also checks all audited night text against a 7.4:1 floor on both canvas and current line. Final night minima are **8.72:1 on the canvas**, **7.45:1 on the current line**, and **0.110353 syntax distance** (previously about 0.076). Comments now measure **8.77:1 / 7.49:1**. These are measurable design guards, not proof that two different polarities feel identical to every reader. All selection/search text and native terminal mappings remain checked.
 
-Verified with the palette checker, real Kitty config/font API, typography suite, scheduler suite, both Neovim test modes and Doom batch tests. Applying `theme-colors study-night` preserved auto mode and the wallpaper, with no Hyprland config errors. A running disposable real-config Neovim reloaded the new colors and retained bold keywords/functions, confirmed through its live API. Final screenshot verification was unavailable after the test window moved offscreen, so no new rendered-pixel or visual-comfort claim is made.
+Verified with the palette checker, real Kitty config/font API, typography suite, scheduler suite, both Neovim test modes and Doom batch tests. Applying `theme-colors study-night` preserved auto mode and the wallpaper, with no Hyprland config errors. A running disposable real-config Neovim reloaded the new colors and retained bold keywords/functions, confirmed through its live API. The initial final capture was blocked by an offscreen window, then successfully repeated on an isolated special workspace. Actual before/after framebuffer samples contain all six revised syntax roles plus body text. Comments improve from 7.03 to 7.49:1, functions from 7.48 to 9.82:1, and types from 7.22 to 7.45:1 against the current line. Final exact-color pixels include 2502 comment, 4063 keyword, 780 function, 297 string, 1285 number and 1133 type pixels. This establishes rendered palette delivery, not personal comfort.
+
+## Jcode dim-preview follow-up, October 18 at 20:24
+
+The user's actual Jcode screenshot exposed a separate failure that the editor palette tests did not cover: this long-running Jcode client kept its startup light-background adapter after the terminal switched to charcoal. Hardcoded truecolor notes, black markdown and purple previews bypass ANSI palette changes. Jcode v0.99.0 also has no supported live theme-refresh command. No Jcode server was restarted and no debug access was enabled.
+
+Kitty now sets `text_fg_override_threshold 9.0 ratio` and `dim_opacity 1.0` in the shared base config. Ratio mode repairs foreground lightness while preserving hue, including truecolor. The nominal value was increased after real framebuffer tests found that lower settings did not deliver the intended measured contrast for colored glyphs. This is a terminal safeguard, not a fix to Jcode's startup-only theme detection. It follows the actual cell background in both modes and survives Omarchy theme regeneration because it lives outside the generated palette.
+
+Actual running Jcode was observed before/after SIGUSR1: notes changed from barely visible dark ink to readable gray and the purple heading became clearly visible. After real `theme-colors study-night` regeneration, the final running-client screenshot contains **4478 solid reasoning pixels at `#BEBEBE`, 8.49:1**, and **1041 purple-heading pixels at `#C3B1F4`, 8.20:1** against charcoal. Separately, controlled real Kitty fixtures used the exact failure colors with italic/faint/bold attributes. Measured solid-glyph ink contrast against the captured backgrounds:
+
+| Fixture | Night before | Night after | Day after |
+|---|---:|---:|---:|
+| Cached-light notes `#474747` | 1.70:1 | 8.49:1 | 7.88:1 |
+| Native reasoning `#646464` | 2.67:1 | 8.49:1 | 7.88:1 |
+| Faint dark purple | 1.18:1 | 8.09:1 | 10.12:1 |
+| Faint purple accent | 3.09:1 | 8.00:1 | 10.68:1 |
+| Faint green diff | 1.26:1 | 7.87:1 | 8.18:1 |
+| Bold black markdown | 1.33:1 | 8.49:1 | 19.27:1 |
+
+All 12 final framebuffer samples pass a 7.4:1 check, with 575–2075 solid ink pixels per sample, and both purple hues remain purple. Anti-aliased edge pixels naturally have lower contrast. This does not certify every application surface or guarantee perceived comfort. Ratio repair can affect block-character graphics and deliberate low-contrast art, so use a per-application `--override text_fg_override_threshold=0` if needed, rather than disabling the general safeguard. Inline image data is not the text fixture audited here.
+
+Recheck captured local fixtures with `python3 docs/check-preview-framebuffer.py ~/.jcode/scratch`. Capture/measurement helpers and `preview-contrast-{night,day}-{before,after}.png` remain in scratch. `docs/test-kitty-study.py` retains actual-parser checks for the contrast guard and faint opacity. The scheduler suite still passes and auto remains 07:00/20:00.
 
 ## Controls
 

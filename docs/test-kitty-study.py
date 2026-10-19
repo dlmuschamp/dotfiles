@@ -32,6 +32,8 @@ assert opts.term == "xterm-kitty"
 assert opts.allow_remote_control == "no"
 assert opts.shell == "."
 assert opts.background_opacity == 1
+assert opts.text_fg_override_threshold == (9.0, "ratio")
+assert opts.dim_opacity == 1.0
 assert opts.cursor_shape == CURSOR_BEAM
 assert opts.cursor_blink_interval == (0.0, 0.0) or opts.cursor_blink_interval == 0
 assert opts.cursor_trail == 0
