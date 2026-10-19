@@ -19,9 +19,27 @@ private temporary directories, close database handles, and clean up on exit.
 No additional global privacy changes or extension database edits are part of
 this targeted repair. Deep recovery remains explicitly opt-in.
 
-Validate login, second mail tab, restart, reboot, and next-day access before
-claiming a permanent resolution. No fresh interactive login has been observed
-as part of the script-only regression tests.
+Validation on the actual profile (2026-10-19):
+  - ETP-only repair corrected 11 origins with a permissions database backup.
+  - 37 cookie/storage/session files were byte-identical before/after repair.
+  - Every non-ETP permission row was preserved. Re-running repair was a no-op.
+  - 14 isolated subprocess regressions, bash syntax, and shellcheck passed.
+  - Real public interface exercised: zen --headless --screenshot <private-path>
+    --window-size 1365,900 https://outlook.cloud.microsoft/mail/
+    The actual wrapper ran repair + diagnostics and started installed Zen with
+    the actual profile. No screenshot was produced after about 84 seconds.
+    Only this identified headless process received graceful SIGTERM cleanup.
+    Its exit status does not establish successful navigation or sign-in.
+  - Post-startup real zen-sso-guard --check passed: no incorrect ETP exceptions,
+    no diagnostic read errors. Thus the corrected permissions survived a real
+    browser startup, unlike merely passing the mock launch tests.
+  - Browser bridge is not installed and detects Brave, not supported default
+    Zen. Foreground automation was not installed or used during readings.
+
+Acceptance remains BLOCKED: no rendered Outlook page/login result could be
+observed through the non-disruptive headless path. Successful sign-in, a second
+mail tab, reboot, and next-day access remain unverified. Do not label the
+Outlook logout issue permanently resolved based on these script checks.
 
 HISTORICAL INVESTIGATION FOLLOWS
 ------------------------------
