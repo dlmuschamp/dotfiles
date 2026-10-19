@@ -49,6 +49,8 @@ def check():
         for role in ROLES:
             ratios = [contrast(colors[role], colors[background]) for background in ("background", "current_line")]
             assert min(ratios) >= 7, (mode, role, ratios)
+            if mode == "dark":
+                assert min(ratios) >= 7.4, (mode, role, "night contrast floor", ratios)
             if role not in ("text",):
                 assert native[f"syntax_{role}"] == colors[role], (mode, role, "syntax alias mismatch")
             print(f"{role:12} {colors[role]}  {ratios[0]:.2f}:1  {ratios[1]:.2f}:1")
@@ -69,9 +71,8 @@ def check():
             print(f"{role:16} {ratio:.2f}:1")
 
     # Project-specific regression guards, NOT WCAG or color-vision thresholds.
-    # Night's restrained pastel colors have less chromatic separation than day.
-    # Their additional weight/diagnostic cues remain important.
-    for mode, minimum in (("light", 0.10), ("dark", 0.075)):
+    # Both modes use the same separation floor, with weight/diagnostic cues too.
+    for mode, minimum in (("light", 0.10), ("dark", 0.10)):
         colors = palette[mode]
         print(f"\n{mode.upper()}: Oklab syntax distances (normal color vision model)")
         pairs = []
@@ -81,6 +82,7 @@ def check():
             pairs.append((distance, a, b))
         for distance, a, b in sorted(pairs):
             print(f"{a:10} / {b:10} {distance:.3f}")
+        print(f"Minimum syntax distance: {min(pairs)[0]:.6f} (guard {minimum:.2f})")
         for state in ("selection", "search"):
             ratio = contrast(colors[state + "_background"], colors["background"])
             assert ratio >= 1.5, (mode, state, "highlight visibility regressed", ratio)
@@ -92,6 +94,7 @@ def check():
         night = oklab(palette["dark"][role])
         day_hue, night_hue = math.atan2(day[2], day[1]), math.atan2(night[2], night[1])
         difference = abs(math.atan2(math.sin(day_hue - night_hue), math.cos(day_hue - night_hue)))
+        print(f"{role:10} day/night hue difference: {math.degrees(difference):.2f} degrees")
         assert math.degrees(difference) <= 35, (role, "day/night hue family changed", math.degrees(difference))
     print("\nPASS: 32 text pairs >= 7:1, four selection/search text pairs >= 7:1, four borders >= 3:1.")
     print("Spec/native/terminal mappings match. Both-mode syntax, interaction and hue-family guards pass.")

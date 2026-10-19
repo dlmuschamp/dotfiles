@@ -12,11 +12,11 @@ Current profile, October 18, 2026. Supersedes the original JetBrains Mono 15 pt 
 
 ## Stable syntax semantics
 
-Both modes now use pink/raspberry keywords, blue functions, violet types, green strings, amber numbers and red errors. Night keywords are #F6A2DC and types #CDB0FF; other night roles are unchanged. Comments remain upright and readable, and errors retain diagnostic underlines.
+Both modes use pink/raspberry keywords, blue functions, violet types, green strings, amber numbers and red errors. The October 18 evening revision strengthens night syntax separation without changing the light palette or charcoal background. Comments remain upright and readable, keywords/functions bold, and errors retain diagnostic underlines.
 
-All audited text roles meet 7:1 against both the canvas and current line in the configured palette. Night keywords measure 8.36:1 / 7.14:1 and types 8.45:1 / 7.22:1. These are luminance measurements, not guarantees about glare, color vision, reading speed or eye strain.
+Night now uses the same minimum pairwise Oklab distance guard (0.10) as day, instead of the former relaxed night-only 0.075 guard. This is a project-specific normal-color-vision regression check, not an accessibility standard or a guarantee of identical perceived contrast. The checker reports audited text against both canvas and current line, selected/search text and highlight visibility.
 
-Night keyword/function Oklab distance improves from about .075 to .138 and string/type from .084 to .204. The global nearest colored pair remains approximately .076, so this is a semantic-consistency improvement, not a claim that every night hue becomes widely separated. The checker uses separate project-specific day/night distance guards, not an accessibility standard. Bold functions versus normal types and diagnostic underlines remain useful non-hue cues.
+Both modes share genuine IBM Plex Mono Regular at 16 pt with actual Bold faces for structural emphasis. Typography tests and Kitty's actual font resolver verify that dark mode does not fall back to a thinner or smaller font. No blanket bolding, brightness, scale or font-family change is needed.
 
 ## System light/dark synchronization
 

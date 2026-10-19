@@ -86,6 +86,14 @@ Primary design references:
 - Björn Ottosson's Oklab definition: `https://bottosson.github.io/posts/oklab/`
 - Modus documentation on optional bold constructs: `https://protesilaos.com/emacs/modus-themes`
 
+## Night contrast parity follow-up, October 18 evening
+
+Study Night now uses more distinct pink keywords, icy-blue functions, green strings, amber numbers, violet types and red errors. The charcoal canvas, light neutral body text, 16 pt Plex Mono font and selective bold structure are retained. Light-mode colors are unchanged.
+
+The checker applies the same minimum 0.10 pairwise Oklab syntax-distance guard to both modes, replacing night's weaker 0.075 threshold. It also checks all audited night text against a 7.4:1 floor on both canvas and current line. Final night minima are **8.72:1 on the canvas**, **7.45:1 on the current line**, and **0.110353 syntax distance** (previously about 0.076). Comments now measure **8.77:1 / 7.49:1**. These are measurable design guards, not proof that two different polarities feel identical to every reader. All selection/search text and native terminal mappings remain checked.
+
+Verified with the palette checker, real Kitty config/font API, typography suite, scheduler suite, both Neovim test modes and Doom batch tests. Applying `theme-colors study-night` preserved auto mode and the wallpaper, with no Hyprland config errors. A running disposable real-config Neovim reloaded the new colors and retained bold keywords/functions, confirmed through its live API. Final screenshot verification was unavailable after the test window moved offscreen, so no new rendered-pixel or visual-comfort claim is made.
+
 ## Controls
 
 ```sh
