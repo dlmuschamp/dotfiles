@@ -2,10 +2,8 @@
 #
 # Cold-start wrapper for Zen Browser.
 #
-# After reboot (or any full quit), launching Zen from the app menu used to skip
-# zen-sso-guard, so half-auth outlook.cloud.microsoft storage and soft
-# storage-access grants survived — private tabs worked, normal tabs hit
-# "You're signed out". Run the guard once before the first zen-bin process.
+# Cold-start only: repair ETP allow-list values without clearing any site data,
+# then run read-only diagnostics. Never mutate a running browser's profile.
 #
 # Desktop entry: ~/.local/share/applications/zen.desktop (from zen/zen.desktop)
 # Real binary:   /opt/zen-browser-bin/zen-bin
@@ -20,10 +18,15 @@ if [[ ! -x $zen_real ]]; then
 fi
 
 if ! pgrep -x zen-bin >/dev/null; then
+  if command -v zen-sso-fix >/dev/null; then
+    if ! zen-sso-fix --repair-etp; then
+      printf 'ETP repair failed; launching Zen anyway. Retry with Zen closed: zen-sso-fix --repair-etp\n' >&2
+    fi
+  fi
   if command -v zen-sso-guard >/dev/null; then
-    # Best-effort: never block opening the browser if harden is half-broken.
-    if ! zen-sso-guard; then
-      printf 'zen-sso-guard failed; launching Zen anyway. Run: zen-outlook --check\n' >&2
+    # Diagnostics must never block opening the browser.
+    if ! zen-sso-guard --check; then
+      printf 'SSO diagnostic warnings; launching Zen anyway. Run: zen-outlook --check\n' >&2
     fi
   fi
 fi

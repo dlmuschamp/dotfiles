@@ -26,15 +26,18 @@
 #
 # Zen must be fully closed, since it holds a write lock on cookies.sqlite.
 #
-# Usage: zen-sso-fix [--deep]
+# Usage: zen-sso-fix [--deep|--repair-etp]
+# --repair-etp only corrects ETP exceptions. No cookies/storage/session reset.
 
 set -euo pipefail
 
 deep=0
+repair_etp=0
 case "${1:-}" in
   --deep) deep=1 ;;
+  --repair-etp) repair_etp=1 ;;
   '') ;;
-  *) printf 'Usage: %s [--deep]\n' "${0##*/}" >&2; exit 2 ;;
+  *) printf 'Usage: %s [--deep|--repair-etp]\n' "${0##*/}" >&2; exit 2 ;;
 esac
 
 # The hosts OWA itself serves from. Neither login.microsoftonline.com nor
@@ -49,6 +52,8 @@ outlook_hosts=(
 )
 
 # Storage directory suffixes under storage/default/. Scoped to OWA itself.
+# Scoped storage arrays are used through clear_storage_for's nameref.
+# shellcheck disable=SC2034
 outlook_storage=(
   outlook.office.com
   outlook.office365.com
@@ -58,6 +63,7 @@ outlook_storage=(
 
 # --deep also clears IdP / Duo site data so "remembered device" cannot short-
 # circuit into the broken MSAL path.
+# shellcheck disable=SC2034
 deep_storage=(
   login.stanford.edu
   idp.stanford.edu
@@ -158,6 +164,49 @@ profile="$zen_home/$profile_rel"
 [[ -d $profile ]] || { printf 'Resolved profile %s does not exist.\n' "$profile" >&2; exit 1; }
 printf 'Profile: %s\n\n' "$profile"
 
+if (( repair_etp )); then
+  # ETP's permission is an allow-list entry: ALLOW_ACTION (1) disables ETP
+  # for this site. DENY_ACTION (2) is NOT an ETP exception.
+  # Only repair changed rows, preserving all other site/browser state.
+  python3 - "$profile" "${allow_origins[@]}" <<'PY'
+import fcntl, sqlite3, sys, tempfile, time
+from contextlib import closing
+from pathlib import Path
+
+profile = Path(sys.argv[1])
+origins = sys.argv[2:]
+# Firefox also uses a POSIX lock on .parentlock. Hold it for the entire repair
+# to cover renamed processes and a browser starting after the pgrep check.
+lock = (profile / ".parentlock").open("a+b")
+try:
+    fcntl.lockf(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit("Zen profile is locked. Quit Zen before repairing ETP.")
+db = profile / "permissions.sqlite"
+con = sqlite3.connect(db)
+try:
+    con.execute("CREATE TABLE IF NOT EXISTS moz_perms (id INTEGER PRIMARY KEY, origin TEXT, type TEXT, permission INTEGER, expireType INTEGER, expireTime INTEGER, modificationTime INTEGER)")
+    changed = [origin for origin in origins if con.execute(
+        "SELECT permission, expireType, expireTime FROM moz_perms WHERE origin=? AND type='trackingprotection'", (origin,)
+    ).fetchall() != [(1, 0, 0)]]
+    if not changed:
+        print("ETP exceptions already correct; no changes.")
+    else:
+        backup = Path(tempfile.mkdtemp(prefix=".sso-etp-backup.", dir=profile))
+        with closing(sqlite3.connect(backup / "permissions.sqlite")) as saved:
+            con.backup(saved)
+        with con:
+            for origin in changed:
+                con.execute("DELETE FROM moz_perms WHERE origin=? AND type='trackingprotection'", (origin,))
+                con.execute("INSERT INTO moz_perms (origin, type, permission, expireType, expireTime, modificationTime) VALUES (?, 'trackingprotection', 1, 0, 0, ?)", (origin, int(time.time() * 1000)))
+        print(f"ETP exceptions repaired: {len(changed)}; backup: {backup}")
+finally:
+    con.close()
+    lock.close()
+PY
+  exit 0
+fi
+
 backup="$profile/.sso-fix-backup.$(date +%Y%m%d%H%M%S)"
 mkdir -p "$backup"
 cp -- "$profile/cookies.sqlite" "$backup/cookies.sqlite"
@@ -205,7 +254,7 @@ printf 'SSO cookies kept: %s AAD, %s Stanford, %s Duo\n' \
   "$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies WHERE host LIKE '%stanford.edu';")" \
   "$(sqlite3 "$profile/cookies.sqlite" "SELECT count(*) FROM moz_cookies WHERE host LIKE '%duosecurity.com';")"
 
-# permission=1 is ALLOW, permission=2 is DENY (for trackingprotection: ETP off).
+# permission=1 is ALLOW, including ETP's trackingprotection allow-list entry.
 # expireType=0 never expires. moz_perms has no unique constraint, so delete
 # before insert to stay idempotent across re-runs.
 now_ms=$(( $(date +%s) * 1000 ))
@@ -222,9 +271,8 @@ upsert_perm() {
 
 for origin in "${allow_origins[@]}"; do
   upsert_perm "$origin" cookie 1
-  # DENY trackingprotection == turn Enhanced Tracking Protection off for site
-  # (same as clicking the shield icon and disabling it).
-  upsert_perm "$origin" trackingprotection 2
+  # ALLOW trackingprotection == ETP exception (shield disabled for site).
+  upsert_perm "$origin" trackingprotection 1
 done
 printf 'Cookie Allow + ETP-off applied: %s origins\n' "${#allow_origins[@]}"
 

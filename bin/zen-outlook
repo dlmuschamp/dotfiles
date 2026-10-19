@@ -1,27 +1,17 @@
 #!/bin/bash
 #
-# Open Outlook Web without tripping the sign-out loop.
-#
-# Permanent harden: zen-sso-harden (Dark Reader + uBlock exceptions)
-# Overnight guard:  zen-sso-guard  (wipes half-auth outlook.cloud.microsoft)
+# Outlook launcher. Normal launches never clear browser state.
+# The zen wrapper repairs ETP exceptions only before a cold start.
 # Findings: ~/dotfiles/zen/outlook-sso-findings.txt
 #
-# Always use the /mail/ path. Typing the bare outlook.office.com domain
-# redirects through outlook.cloud.microsoft and, with broken OWA site data in
-# the normal profile, reliably triggers logoutRedirect().
-#
 # Usage:
-#   zen-outlook           open mail (runs zen-sso-guard first if Zen is quit)
-#   zen-outlook --recover quit Zen, deep wipe, harden, reopen mail
-#   zen-outlook --check   report poison / harden state only
+#   zen-outlook           open mail through the safe zen wrapper
+#   zen-outlook --recover explicitly quit Zen, deep wipe, harden, reopen mail
+#   zen-outlook --check   read-only diagnostics
 
 set -euo pipefail
 
-# Always use outlook.cloud.microsoft — Microsoft migrates office.com there, and
-# starting on office.com while the redirect_uri lands on cloud.microsoft splits
-# MSAL PKCE sessionStorage across origins (code arrives, verifier is missing →
-# logoutRedirect). Private windows often stay on one host; normal profile had
-# both. Session restore also replayed stale #code= / logout tabs.
+# Use a clean entry URL, never a restored OAuth code or logout URL.
 url=https://outlook.cloud.microsoft/mail/
 zen_bin=/opt/zen-browser-bin/zen-bin
 
@@ -46,24 +36,16 @@ quit_zen() {
 
 open_normal() {
   if zen_running; then
-    # Cannot safely mutate profile DBs while Zen holds locks. Warn if poisoned.
-    if ! zen-sso-guard --check >/tmp/zen-sso-guard-check.txt 2>&1; then
-      printf 'Outlook SSO looks unhealthy (half-auth cloud.microsoft and/or missing harden).\n' >&2
-      printf 'Quit Zen and run: zen-outlook --recover\n' >&2
-      printf '(details in /tmp/zen-sso-guard-check.txt)\n' >&2
-    fi
-    exec "$zen_bin" --new-tab "$url"
+    exec zen --new-tab "$url"
   fi
-  # Zen is quit: clear overnight poison + re-pin grants before launch.
-  zen-sso-guard
-  exec "$zen_bin" "$url"
+  exec zen "$url"
 }
 
 recover() {
   quit_zen
-  # Deep wipe (Microsoft/AAD cookies too) then guard/harden.
+  # Destructive recovery is opt-in only. Never used by a normal launch.
   zen-sso-fix --deep
-  zen-sso-guard
+  zen-sso-harden
   exec "$zen_bin" "$url"
 }
 
@@ -76,10 +58,9 @@ case "${1:-}" in
     cat <<'EOF'
 Usage: zen-outlook [--recover|--check]
 
-  (no args)   If Zen is quit: run zen-sso-guard, then open mail.
-              If Zen is running: open a new tab (warns if guard --check fails).
-  --recover   Quit Zen, zen-sso-fix --deep, zen-sso-guard, reopen mail. Costs Duo.
-  --check     Report poison / Dark Reader / uBlock / grant state only.
+  (no args)   Open mail through zen. Cold start repairs ETP exceptions only.
+  --recover   Quit Zen, deep reset, harden, reopen mail. Clears sessions, costs Duo.
+  --check     Read-only diagnostics. Does not classify localStorage as poisoned.
 EOF
     exit 0
     ;;

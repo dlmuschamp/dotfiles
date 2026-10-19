@@ -1,5 +1,30 @@
 Outlook Web SSO logout loop — Zen findings
 ==========================================
+CURRENT STATUS (2026-10-19): targeted repair, not a proven final root cause
+------------------------------------------------------------------------
+The September conclusions below are historical and were followed by renewed
+failures. Inspection found a definite script bug: trackingprotection=2 is
+DENY, not an ETP allow-list exception. Both recovery paths used that wrong
+value. ETP exceptions require ALLOW_ACTION (1).
+
+Current behavior:
+  zen-sso-fix --repair-etp: backup + ETP-only correction, Zen must be closed
+  zen: cold-start ETP correction, then best-effort read-only guard
+  zen-sso-guard / --check: always read-only, including with Zen running
+  zen-outlook: normal launches go through zen, never deep-reset automatically
+
+The guard no longer calls hints-without-localStorage-tokens "poison" or deletes
+origin data. MSAL can store its session elsewhere. Diagnostic snapshots use
+private temporary directories, close database handles, and clean up on exit.
+No additional global privacy changes or extension database edits are part of
+this targeted repair. Deep recovery remains explicitly opt-in.
+
+Validate login, second mail tab, restart, reboot, and next-day access before
+claiming a permanent resolution. No fresh interactive login has been observed
+as part of the script-only regression tests.
+
+HISTORICAL INVESTIGATION FOLLOWS
+------------------------------
 Last updated: 2026-09-11 (reboot persistence: cookieBehavior=0 + cold-start wrapper;
             uBlock update_refcount harden fix)
 Prior work: agent chats 000ff096-ece2-4edc-bece-2839f6de4b73,
