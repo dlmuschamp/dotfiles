@@ -206,19 +206,19 @@
       (should (equal (face-attribute (car entry) :slant nil t) (nth 2 entry))))))
 
 (ert-deftest study-font-declarations ()
-  "Keep the explicit non-ligature regular 15pt font without loading Doom."
+  "Keep genuine regular Plex at 16pt, with independent 15pt prose fonts."
   (should (= (length study-test-font-forms) 2))
   (mapc (lambda (form) (eval form t)) (reverse study-test-font-forms))
-  (should (equal luciano/ui-font-family "JetBrainsMonoNL Nerd Font Mono"))
-  (should (= luciano/ui-font-height 150))
+  (should (equal luciano/ui-font-family "IBM Plex Mono"))
+  (should (= luciano/ui-font-height 160))
   (should (equal (format "%s" (font-get doom-font :family)) luciano/ui-font-family))
-  (should (= (font-get doom-font :size) 15.0))
+  (should (= (font-get doom-font :size) 16.0))
   (should (eq (font-get doom-font :weight) 'regular))
   (should (equal (format "%s" (font-get doom-variable-pitch-font :family)) "IBM Plex Sans"))
   (should (= (font-get doom-variable-pitch-font :size) 15.0))
   (should (equal (format "%s" (font-get doom-serif-font :family)) "IBM Plex Serif"))
   (should (= (font-get doom-serif-font :size) 15.0))
   (should (equal (format "%s" (font-get doom-big-font :family)) luciano/ui-font-family))
-  (should (= (font-get doom-big-font :size) 16.0)))
+  (should (= (font-get doom-big-font :size) 18.0)))
 
 (ert-run-tests-batch-and-exit "^study-")

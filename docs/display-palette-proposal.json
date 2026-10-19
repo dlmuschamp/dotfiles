@@ -1,5 +1,5 @@
 {
-  "status": "Installed Study Day/Night palettes. Light syntax discrimination revised October 18, 2026.",
+  "status": "Installed Study Day/Night palettes. Day/night syntax roles aligned October 18, 2026.",
   "date": "2026-10-18",
   "contrast_target": "At least 7:1 for listed text roles on main and current-line backgrounds; not a medical guarantee or whole-app accessibility certification.",
   "light": {
@@ -27,11 +27,11 @@
     "current_line": "#292F38",
     "text": "#E2E5E9",
     "comments": "#B4BCC6",
-    "keywords": "#D1B2FA",
+    "keywords": "#F6A2DC",
     "functions": "#9FC3FA",
     "strings": "#A8C98B",
     "numbers": "#E9BD7A",
-    "types": "#7AC9C2",
+    "types": "#CDB0FF",
     "errors": "#FFADB0",
     "selection_background": "#35465C",
     "selection_text": "#E2E5E9",

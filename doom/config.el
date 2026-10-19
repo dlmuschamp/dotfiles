@@ -1,24 +1,24 @@
 ;;; $DOOMDIR/config.el -*- lexical-binding: t; -*-
 
-;; Clean, non-ligature monospace at 15pt. Keep the Plex proportional fonts.
+;; Understated genuine Plex Mono at 16pt. Keep proportional prose at 15pt.
 ;; Emacs face heights use tenths of a point, independently of terminal sizing.
-(setq luciano/ui-font-family "JetBrainsMonoNL Nerd Font Mono"
-      luciano/ui-font-height 150)
+(setq luciano/ui-font-family "IBM Plex Mono"
+      luciano/ui-font-height 160)
 (setq doom-font (font-spec :family luciano/ui-font-family
                            :weight 'regular
                            :size (/ luciano/ui-font-height 10.0))
       doom-variable-pitch-font (font-spec :family "IBM Plex Sans"
-                                          :size (/ luciano/ui-font-height 10.0))
-      doom-big-font (font-spec :family luciano/ui-font-family :size 16.0)
+                                          :size 15.0)
+      doom-big-font (font-spec :family luciano/ui-font-family :size 18.0)
       doom-serif-font (font-spec :family "IBM Plex Serif"
-                                 :size (/ luciano/ui-font-height 10.0)))
+                                 :size 15.0))
 (add-to-list 'default-frame-alist
              `(font . ,(format "%s-%s"
                                luciano/ui-font-family
                                (/ luciano/ui-font-height 10.0))))
 
 (defun luciano/confirm-ui-font ()
-  "Apply the configured 15pt study font to default and fixed-pitch faces."
+  "Apply the configured 16pt study font to default and fixed-pitch faces."
   (when (display-graphic-p)
     (set-face-attribute 'default nil
                         :family luciano/ui-font-family

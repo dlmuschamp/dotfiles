@@ -2,12 +2,14 @@
 
 Configured October 18, 2026. This is a comfort-oriented starting point, not a medical guarantee.
 
+**Current profile update:** See [indoor-workstation.md](indoor-workstation.md) for genuine IBM Plex Mono 16 pt, Kitty as the image-capable default terminal, aligned night keyword/type hues and real C-code/light-dark synchronization evidence. The typography measurements and JetBrains recommendation below document the earlier configuration, not the current font.
+
 ## Everyday behavior
 
 - **07:00 to 19:59, local laptop time:** Study Day, warm off-white `#F7F5F0`, dark text `#24272E`.
 - **20:00 to 06:59:** Study Night, charcoal `#1F2329`, light text `#E2E5E9`.
 - A user timer checks once per minute and only applies a theme when needed. It catches up after login or sleep. It does not wake the laptop.
-- Alacritty and Doom use **JetBrainsMonoNL Nerd Font Mono Regular, 15 pt**. NL means no programming ligatures. Nerd Font symbols remain available.
+- Kitty, Alacritty and Doom now use **IBM Plex Mono Regular, 16 pt**, with separate symbol fallback and literal operators. Earlier JetBrains details below are historical.
 - The proportional IBM Plex Sans family and document/math fonts are retained. Screen resolution, scaling, brightness, and the existing night-light schedule are unchanged.
 - Wallpaper, zero outside/inter-window gaps, solid windows, and 1-pixel colored borders are preserved.
 
@@ -42,7 +44,7 @@ The checker now also compares colors in **Oklab**, rather than misusing luminanc
 
 ### Font and size decision
 
-Keep **JetBrainsMonoNL Nerd Font Mono Regular at 15 pt**, with genuine bold faces for emphasis and no programming ligatures. This is a deliberate practical choice, not a finding that any font is universally optimal. JetBrains documents its increased lowercase height and distinct symbol design. Changing to another fashionable family without a reported legibility issue would not establish an improvement.
+Historical choice: **JetBrainsMonoNL Nerd Font Mono Regular at 15 pt**, with genuine bold faces for emphasis and no programming ligatures. This was a deliberate practical choice, not a finding that any font is universally optimal. It has since been replaced by genuine Plex Mono 16 pt to match the user's understated embedded-workstation preference.
 
 Verified on the actual **1920×1200, scale-1** laptop display with a real Alacritty startup:
 

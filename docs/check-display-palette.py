@@ -68,23 +68,33 @@ def check():
             assert ratio >= 3, (mode, role, ratio)
             print(f"{role:16} {ratio:.2f}:1")
 
-    # A project-specific regression guard, NOT a WCAG or color-vision threshold.
-    # Luminance contrast alone cannot describe hue differentiation.
-    light = palette["light"]
-    print("\nLIGHT: Oklab syntax distances (normal color vision model)")
-    pairs = []
-    for a, b in itertools.combinations(ROLES[2:], 2):
-        distance = math.dist(oklab(light[a]), oklab(light[b]))
-        assert distance >= 0.10, (a, b, distance)
-        pairs.append((distance, a, b))
-    for distance, a, b in sorted(pairs):
-        print(f"{a:10} / {b:10} {distance:.3f}")
-    for state in ("selection", "search"):
-        ratio = contrast(light[state + "_background"], light["background"])
-        assert ratio >= 1.5, (state, "highlight visibility regressed", ratio)
-        print(f"{state} / canvas: {ratio:.2f}:1")
+    # Project-specific regression guards, NOT WCAG or color-vision thresholds.
+    # Night's restrained pastel colors have less chromatic separation than day.
+    # Their additional weight/diagnostic cues remain important.
+    for mode, minimum in (("light", 0.10), ("dark", 0.075)):
+        colors = palette[mode]
+        print(f"\n{mode.upper()}: Oklab syntax distances (normal color vision model)")
+        pairs = []
+        for a, b in itertools.combinations(ROLES[2:], 2):
+            distance = math.dist(oklab(colors[a]), oklab(colors[b]))
+            assert distance >= minimum, (mode, a, b, distance)
+            pairs.append((distance, a, b))
+        for distance, a, b in sorted(pairs):
+            print(f"{a:10} / {b:10} {distance:.3f}")
+        for state in ("selection", "search"):
+            ratio = contrast(colors[state + "_background"], colors["background"])
+            assert ratio >= 1.5, (mode, state, "highlight visibility regressed", ratio)
+            print(f"{state} / canvas: {ratio:.2f}:1")
+    # Keep role families stable when switching modes: pink keywords, blue
+    # callables, green strings, ochre numbers, violet types, red errors.
+    for role in ("keywords", "functions", "strings", "numbers", "types", "errors"):
+        day = oklab(palette["light"][role])
+        night = oklab(palette["dark"][role])
+        day_hue, night_hue = math.atan2(day[2], day[1]), math.atan2(night[2], night[1])
+        difference = abs(math.atan2(math.sin(day_hue - night_hue), math.cos(day_hue - night_hue)))
+        assert math.degrees(difference) <= 35, (role, "day/night hue family changed", math.degrees(difference))
     print("\nPASS: 32 text pairs >= 7:1, four selection/search text pairs >= 7:1, four borders >= 3:1.")
-    print("Spec/native/terminal mappings match. Light syntax and interaction-state regression guards pass.")
+    print("Spec/native/terminal mappings match. Both-mode syntax, interaction and hue-family guards pass.")
     print("Calculated sRGB/model results, not physical-display, color-blindness or personal-comfort certification.")
 
 

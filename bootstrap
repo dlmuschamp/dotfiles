@@ -215,6 +215,26 @@ for config in alacritty doom fontconfig gtk-3.0 gtk-4.0 hypr nvim omarchy sioyek
   link_path "$repo_dir/$config" "$config_home/$config"
 done
 
+# Kitty may already have a personal config, including untracked files. Link only
+# our config file and never move or replace a user's existing file or symlink.
+install_kitty_config() {
+  local source="$repo_dir/kitty/kitty.conf"
+  local target="$config_home/kitty/kitty.conf"
+
+  if [[ -L $target && $(readlink -f -- "$target") == "$source" ]]; then
+    return
+  fi
+  if [[ -e $target || -L $target ]]; then
+    printf 'Preserving existing Kitty config: %s\n' "$target" >&2
+    return
+  fi
+  mkdir -p -- "$(dirname -- "$target")"
+  ln -s -- "$source" "$target"
+  printf 'Linked %s -> %s\n' "$target" "$source"
+}
+
+install_kitty_config
+
 link_path \
   "$repo_dir/xdg-terminal-exec/hyprland-xdg-terminals.list" \
   "$config_home/hyprland-xdg-terminals.list"
