@@ -27,7 +27,10 @@ All keys below are in **normal mode**. `<leader>` is Space.
 
 Spelling is enabled for Org, Markdown, plain text, and Typst. Pause on a misspelled
 word in normal mode to see up to three actual suggestions after the line.
-Press `z=` for the selectable list. Nothing is silently auto-corrected. Insert
+Press `z=` for the selectable list. Idle suggestions never move the cursor or
+scroll the window. Choosing a correction preserves each window's current cursor
+and view (a column beyond the new end of a shortened line is clamped by Neovim).
+Nothing is silently auto-corrected. Insert
 mode also retains Neovim's built-in `Ctrl-x s` spelling completion.
 
 `Space o w` is the writing submenu in WhichKey. Existing Org tags, TODOs, source

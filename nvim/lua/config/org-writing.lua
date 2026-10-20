@@ -202,7 +202,20 @@ function M.spell_suggest()
     then
       return notify("Line changed while choosing a correction. Try again.", vim.log.levels.WARN)
     end
+    -- Text edits can relocate cursors inside or after the replaced word.
+    -- Preserve each window's current view, not the position when the picker opened.
+    local views = {}
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+      views[win] = vim.api.nvim_win_call(win, vim.fn.winsaveview)
+    end
     vim.api.nvim_buf_set_text(buf, target.row, target.start, target.row, target.finish, { choice })
+    for win, view in pairs(views) do
+      if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+        vim.api.nvim_win_call(win, function()
+          vim.fn.winrestview(view)
+        end)
+      end
+    end
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   end)
 end
@@ -214,7 +227,9 @@ function M.spell_preview()
     return
   end
   local target = M.word_at_cursor()
-  if not target or vim.fn.spellbadword()[1] ~= target.word then
+  -- With no argument spellbadword() searches the buffer and moves the cursor.
+  -- Inspect only the word's text so idle previews never navigate the document.
+  if not target or vim.fn.spellbadword(target.word)[1] ~= target.word then
     return
   end
   local choices = vim.fn.spellsuggest(target.word, 3)
