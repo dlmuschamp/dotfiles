@@ -37,6 +37,63 @@ mode also retains Neovim's built-in `Ctrl-x s` spelling completion.
 editing, and other default Org bindings are kept. In Org's special source-block
 editing buffer, its existing `Space o w` save action takes precedence.
 
+## Code and math without leaving Org
+
+Keep `* Section` / `** Subsection` headings and the same `Tab` / `Shift-Tab`
+outline navigation. The document is **Org**, with native Typst inside math
+fragments. Ordinary prose still uses Org `*bold*`, `/italic/`, lists, and tables,
+not arbitrary Typst markup or LaTeX commands.
+
+- Inline code: `` `array[i]` ``, `=array[i]=`, or `~array[i]~`. Single-backtick
+  snippets are a PDF-export convenience. Org-native `=...=` / `~...~` also have
+  native Org editor markup. Backtick pairs must be on one line, with no padding
+  inside the delimiters, separated from surrounding words by spaces/punctuation.
+- Inline math: `$sqrt(x^2 + y^2)$` or `$(a+b)/c$`.
+- Display math: put `$ sum_(k=1)^n k = (n(n+1))/2 $` on its own line, with
+  blank lines around it. For longer equations, put `$` on opening/closing lines.
+- Code listings: use Org source blocks, **not Markdown triple-backtick fences**.
+  The language label chooses highlighting in the editor and exported PDF.
+
+```org
+* Implementation
+Inline code: `mean(values)`. Inline math: $overline(x)$.
+
+#+begin_src python :exports code :eval never
+def mean(values):
+    if not values:
+        raise ValueError("need a value")
+    return sum(values) / len(values)
+#+end_src
+
+** Derivation
+
+$ overline(x) = (sum_(i=1)^n x_i)/n $
+```
+
+Use `matlab`, `C` or `c`, `cpp` (also `C++` on PDF export), `python`,
+`javascript`, `typescript`, `bash`, `lua`, or `rust` after `#+begin_src`.
+Source code is **never executed** by the exporter. Leading spaces, nested
+indentation, and line breaks are preserved. Tabs use four-column stops in
+PDF code listings. Use `#+begin_example` / `#+end_example` for literal aligned
+text without highlighting. Ordinary paragraph indentation is typesetting, not
+literal whitespace, so use one of these blocks when spacing matters.
+
+Syntax parsers for these languages are installed through the existing
+Treesitter setup. The first parser build needs a compiler and network access.
+Inside a source block, Org's source-edit command `Space o '` opens a dedicated
+language buffer. `Space o w` writes it back, and `Space o k` cancels that edit.
+The existing Org heading navigation remains unchanged.
+
+For advanced native Typst layout, wrap it in `#+begin_export typst` /
+`#+end_export`, or use `@@typst:...@@` inline. A `#+begin_src typst` block
+prints Typst code instead of rendering it. Do not mix LaTeX math commands into
+Typst math. Unsupported code languages still print as plain monospace code.
+
+Copyable examples for all the languages above, math, and raw layout are in
+`~/dotfiles/typst/org/code-and-math.org`. Open it with Neovim and use `:OrgPdf`,
+or copy its sections into your own `.org` file. Restart Neovim after changing
+configuration to load the new parser setup.
+
 ## Write prose, export formatted PDFs
 
 Use `:OrgNew` instead of copying boilerplate. It adds editable title, author,

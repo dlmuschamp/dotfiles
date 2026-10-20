@@ -22,7 +22,8 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(module.prepare(text), '$$ sum_(k=1)^n k $$\n\n$$\n  mat(1, 2; 3, 4)\n$$\n')
         for kind in ('src typst', 'example', 'export typst', 'comment'):
             block = '#+begin_' + kind + '\n$ x $\n#+end_' + kind.split()[0] + '\n'
-            self.assertEqual(module.prepare(block), block)
+            expected = block.replace('#+begin_' + kind, '#+begin_' + kind + ' -i', 1) if kind in ('src typst', 'example') else block
+            self.assertEqual(module.prepare(block), expected)
 
     def test_unclosed_display(self):
         with self.assertRaisesRegex(ValueError, 'unclosed'):

@@ -26,16 +26,98 @@ def templates():
     return result
 
 
+def inline_code(line, math=None):
+    """Convert prose backticks, keeping Org literals and math opaque.
+
+    Encode every character as a Typst Unicode escape: even @@ cannot close
+    the Org export snippet, and no input can escape the Typst string.
+    The returned math delimiter carries multiline equations across lines.
+    """
+    result = []
+    i = 0
+
+    def escaped(index):
+        start = index
+        while start and line[start - 1] == "\\":
+            start -= 1
+        return (index - start) % 2 == 1
+
+    while i < len(line):
+        if math:
+            end = line.find(math, i)
+            while end >= 0 and escaped(end):
+                end = line.find(math, end + len(math))
+            if end < 0:
+                result.append(line[i:])
+                break
+            result.append(line[i:end + len(math)])
+            i = end + len(math)
+            math = None
+            continue
+        char = line[i]
+        if line.startswith('@@', i):
+            end = line.find('@@', i + 2)
+            if end >= 0:
+                result.append(line[i:end + 2])
+                i = end + 2
+                continue
+        opener = next((a for a in ('\\(', '\\[', '$$', '$')
+                       if line.startswith(a, i) and not escaped(i)), None)
+        if opener == '$':
+            end = line.find('$', i + 1)
+            while end >= 0 and (escaped(end) or line[end - 1].isspace()):
+                end = line.find('$', end + 1)
+            if (i + 1 == len(line) or line[i + 1].isspace()
+                    or end < 0):
+                opener = None
+            else:
+                result.append(line[i:end + 1])
+                i = end + 1
+                continue
+        if opener:
+            math = {'\\(': '\\)', '\\[': '\\]'}.get(opener, opener)
+            result.append(opener)
+            i += len(opener)
+            continue
+        before = i == 0 or line[i - 1].isspace() or line[i - 1] in "('“\"[{"
+        if char in '=~`' and before and not escaped(i):
+            end = i + 1
+            while True:
+                end = line.find(char, end)
+                if end < 0:
+                    break
+                after = end + 1 == len(line) or line[end + 1].isspace() or line[end + 1] in ".,!?;:')”\"]}"
+                value = line[i + 1:end]
+                if (value and not value[0].isspace() and not value[-1].isspace()
+                        and '\n' not in value and '\r' not in value
+                        and not escaped(end) and after
+                        and (char != '`' or '`' not in value)):
+                    if char == '`':
+                        encoded = ''.join('\\u{' + format(ord(c), 'x') + '}' for c in value)
+                        result.append('@@typst:#raw("' + encoded + '")@@')
+                    else:
+                        result.append(line[i:end + 1])
+                    i = end + 1
+                    break
+                end += 1
+            if end >= 0:
+                continue
+        result.append(char)
+        i += 1
+    return ''.join(result), math
+
+
 def prepare(text):
-    """Normalize standalone Typst display math without touching literal blocks.
+    """Normalize Typst display math and single-backtick prose literals.
 
     Org does not recognize `$ x $`. Use its $$ delimiter for Pandoc's reader.
-    Raw export blocks remain untouched, as do source/example/comment blocks.
+    Literal bodies remain untouched. Source/example headers preserve indentation.
     """
     lines = text.splitlines(keepends=True)
     result = []
     block = None
     display = False
+    math = None
     for line in lines:
         start = re.match(r"\s*#\+begin_(\S+)", line, re.I)
         if block:
@@ -45,9 +127,22 @@ def prepare(text):
             continue
         if start:
             block = start.group(1)
+            if block.lower() in ('src', 'example'):
+                # Pandoc otherwise removes the body's common indentation.
+                header = re.match(r'(\s*#\+begin_(?:src|example))([^\r\n]*)(\r?\n)?$', line, re.I)
+                prefix, arguments, ending = header.groups()
+                arguments = re.sub(r'^(\s+)C\+\+(?=\s|$)', r'\1cpp', arguments, flags=re.I)
+                options, separator, headers = arguments.partition(':')
+                if not re.search(r'(?<!\S)-i(?!\S)', options):
+                    options = options.rstrip() + ' -i'
+                # Pandoc 3.12 rejects whitespace between a switch and ':'.
+                if separator:
+                    options = options.rstrip()
+                line = prefix + options + separator + headers + (ending or '')
             result.append(line)
             continue
         stripped = line.strip()
+        was_display = display
         if not display and re.fullmatch(r"\$\s+[^$]+\s+\$", stripped):
             line = line.replace("$", "$$")
         elif not display and re.match(r"^\$\s", line.lstrip()) and stripped.count("$") == 1:
@@ -57,6 +152,8 @@ def prepare(text):
             index = line.rfind("$")
             line = line[:index] + "$$" + line[index + 1:]
             display = False
+        if not was_display and not display:
+            line, math = inline_code(line, math)
         result.append(line)
     if display:
         raise ValueError("unclosed standalone Typst display equation")
@@ -155,7 +252,7 @@ def main():
         # Temporary PDF is on the destination filesystem for atomic os.replace.
         with tempfile.TemporaryDirectory(prefix=".org-pdf-", dir=output.parent) as directory:
             temporary = Path(directory)
-            command = [pandoc, "--from=org", "--to=typst", "--standalone", "--template", str(available[selected]), "--lua-filter", str(ASSETS / "native-math.lua")]
+            command = [pandoc, "--from=org", "--to=typst", "--standalone", "--preserve-tabs", "--tab-stop=4", "--template", str(available[selected]), "--lua-filter", str(ASSETS / "native-math.lua"), "--lua-filter", str(ASSETS / "code.lua")]
             for key in ("instructor", "course"):
                 if key in metadata:
                     command += ["--metadata", key + "=" + metadata[key]]

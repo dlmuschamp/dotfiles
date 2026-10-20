@@ -97,8 +97,10 @@ There is a separate Org reader issue: `$ x $` is Typst display math but **not**
 an Org math fragment. Before invoking Pandoc, the CLI normalizes standalone
 spaced-dollar equations to Org `$$ ... $$` math. It supports both a single-line
 `$ expression $` and multi-line equations with a single `$` opening/closing line.
-This normalization skips `#+begin_...` blocks, including source, example and raw
-export blocks. Inline math has no spaces at its delimiters: `$sqrt(2)$`.
+Raw export block contents remain untouched. Source and example block bodies
+are likewise protected from math/backtick conversion, with only their opening
+headers adjusted to retain indentation. Inline math has no spaces at its
+delimiters: `$sqrt(2)$`.
 
 Do not put `$ x $` midway through a prose paragraph and expect automatic display
 recognition. Use a standalone equation with blank lines around it, Org `$$`
@@ -118,6 +120,53 @@ The preprocessor is intentionally conservative, not a replacement Org parser.
 Use raw export blocks for equations embedded in complex lists or literal text
 containing dollar signs. Typst-specific raw content will not survive unrelated
 output formats such as DOCX or HTML without a separate conversion policy.
+
+## Code snippets, indentation, and native Typst layout
+
+The full copyable example is `org/code-and-math.org`. Export it with:
+
+```sh
+org-pdf ~/dotfiles/typst/org/code-and-math.org --output ~/code-and-math.pdf
+```
+
+Use single backticks for Typst-style inline code, for example
+`` `array[index]` ``. These are single-line literals with no padding at the
+ends and spaces/punctuation around them. Org-native `=array[index]=` and
+`~array[index]~` remain supported. For language-highlighted inline snippets,
+Org also supports `src_python{print(42)}`. Do not use Markdown fenced blocks
+in an Org document. Use Org source blocks:
+
+```org
+#+begin_src matlab :exports code :eval never
+for k = 1:3
+    fprintf('value: %g\n', k);
+end
+#+end_src
+```
+
+Language tags include `matlab`, `c` / `C`, `cpp` / `C++`, `python`,
+`javascript` / `js`, `typescript` / `ts`, `bash` / `sh`, `lua`, and `rust`.
+The exporter normalizes aliases and uses Typst's native code highlighter,
+without requiring a package download or running the code. Unknown language
+names fall back to a plain listing. `typst` listings are printed as code,
+not evaluated as document layout.
+
+The export preprocessor preserves source and example block indentation,
+including a shared leading margin that Pandoc's Org reader normally removes.
+It does this in the temporary conversion input only, by adding the Org `-i`
+switch. Tabs in exported code use four-column stops. Source bodies are not
+rewritten, evaluated, or modified on disk. Use `#+begin_example` /
+`#+end_example` when aligned literal text needs no highlighting. Ordinary
+paragraphs follow the selected template's paragraph spacing and indentation,
+not arbitrary spaces typed into prose. Keep code lines reasonably short to
+fit the page width.
+
+Org headings, lists, emphasis, and tables remain Org syntax. Typst-only
+formatting such as `#align`, `#box`, `#grid`, or show/set rules belongs inside
+`#+begin_export typst` / `#+end_export` or an inline `@@typst:...@@` export
+snippet. Merely typing arbitrary Typst markup in an Org paragraph does not
+make it native Typst input. Single-backtick compatibility and standalone math
+normalization apply to this exporter, not every Org renderer.
 
 ## Custom templates
 
@@ -162,7 +211,7 @@ change that template, or alter its viewer lifecycle.
 ## Verification
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_org_pdf.py -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_org_*py' -v
 ```
 
 Tests compile real PDFs with all three builtins and an imported template, extract

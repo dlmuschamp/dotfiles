@@ -1,0 +1,118 @@
+#+TITLE: Code and Mathematics in Org
+#+AUTHOR: Damian Luciano Muschamp
+#+PDF_TEMPLATE: notes
+#+OPTIONS: toc:nil num:nil
+
+* Keep writing in Org
+Use Org headings and Shift-Tab in Neovim to navigate this file. Use *bold*,
+/italic/, =Org code=, ~verbatim~, or Typst-style `inline_code(x)` in prose.
+Code is printed, never executed. Leading spaces and nested indentation survive
+PDF export. Tab characters in code use four-column tab stops.
+
+* Mathematics with Typst syntax
+Inline math has tight delimiters: $sqrt(x^2 + y^2)$ and $alpha + beta$.
+
+$ sum_(k=1)^n k = (n(n+1))/2 $
+
+$
+mat(1, 2; 3, 4) vec(x, y) = vec(x + 2y, 3x + 4y)
+$
+
+** A worked example
+The average is $overline(x) = (sum_(i=1)^n x_i)/n$.
+Write Typst math, not LaTeX commands, inside these dollar signs.
+
+* MATLAB
+#+begin_src matlab :exports code :eval never
+values = [1, 2, 3];
+for k = 1:length(values)
+    if values(k) > 1
+        fprintf('value: %g\n', values(k));
+    end
+end
+#+end_src
+
+* C
+#+begin_src C :exports code :eval never
+#include <stdio.h>
+
+int main(void) {
+    for (int i = 0; i < 3; ++i) {
+        printf("value: %d\n", i);
+    }
+    return 0;
+}
+#+end_src
+
+* C++
+#+begin_src cpp :exports code :eval never
+#include <iostream>
+#include <vector>
+
+int main() {
+    for (const auto value : std::vector<int>{1, 2, 3}) {
+        std::cout << value << '\n';
+    }
+}
+#+end_src
+
+* Python
+#+begin_src python :exports code :eval never
+def mean(readings):
+    if not readings:
+        raise ValueError("at least one reading is required")
+    return sum(readings) / len(readings)
+#+end_src
+
+* JavaScript
+#+begin_src javascript :exports code :eval never
+const values = [1, 2, 3];
+for (const value of values) {
+    console.log(`value: ${value}`);
+}
+#+end_src
+
+* TypeScript
+#+begin_src typescript :exports code :eval never
+function square(value: number): number {
+    return value * value;
+}
+#+end_src
+
+* Shell
+#+begin_src bash :exports code :eval never
+for file in *.org; do
+    printf '%s\n' "$file"
+done
+#+end_src
+
+* Lua
+#+begin_src lua :exports code :eval never
+local function square(value)
+    return value * value
+end
+#+end_src
+
+* Rust
+#+begin_src rust :exports code :eval never
+fn main() {
+    let values = [1, 2, 3];
+    for value in values {
+        println!("value: {}", value);
+    }
+}
+#+end_src
+
+* Exact whitespace without highlighting
+#+begin_example
+    aligned     columns
+        nested  text
+#+end_example
+
+* Advanced Typst layout
+Normal paragraphs follow Org formatting. For Typst-only layout or functions,
+use an explicit export block. This is rendered, unlike a source-code listing.
+
+#+begin_export typst
+#align(center)[#box(inset: 8pt, stroke: 0.5pt)[A native Typst layout block]]
+#+end_export
