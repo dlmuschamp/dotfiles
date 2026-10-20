@@ -1,5 +1,7 @@
 # Org writing in Neovim
 
+For a daily cheat sheet, see [WRITING-QUICKREF.md](WRITING-QUICKREF.md).
+
 Open any existing `.org` file with `nvim`. This edits the same plain-text file as
 Emacs, without running an Emacs process. Restart existing Neovim instances once
 after installing this configuration. Orgmode and its parser are installed on
