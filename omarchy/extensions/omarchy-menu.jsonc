@@ -11,6 +11,10 @@
   "trigger.emoji": {"when":"false"},
   "trigger.toggle.idle-lock": {"when":"false"},
   "trigger.toggle.screensaver": {"when":"false"},
+  "trigger.toggle.color-mode": {"icon":"󰔎","label":"Light / Dark Mode","aliases":["light","dark","theme"],"action":"dotfiles-toggle-color-mode"},
+
+  // Super+Alt+Space opens Apps. Keep its app list and expose Toggle there too.
+  "apps.toggle": {"icon":"󰔎","label":"Toggle","target":"trigger.toggle"},
 
   "style.theme": {"when":"false"},
   "style.background": {"when":"false"},

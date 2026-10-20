@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Switch the existing study palettes without replacing the current wallpaper.
+set -euo pipefail
+
+colors="$HOME/.local/state/omarchy/current/theme/colors.toml"
+mode=$(omarchy-theme-color --file "$colors" mode)
+case "$mode" in
+  light) theme=study-night ;;
+  dark) theme=study-day ;;
+  *) printf 'Unknown current color mode: %s\n' "$mode" >&2; exit 1 ;;
+esac
+
+export OMARCHY_THEME_SKIP_BACKGROUND=1
+exec omarchy-theme-set "$theme"
