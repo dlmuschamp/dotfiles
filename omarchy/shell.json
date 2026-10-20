@@ -15,16 +15,16 @@
     "layout": {
       "left": [
         {
-          "id": "omarchy.monitor"
-        },
-        {
-          "id": "omarchy.menu"
+          "id": "luciano.scroll-position"
         },
         {
           "id": "omarchy.workspaces"
         },
         {
-          "id": "luciano.scroll-position"
+          "id": "omarchy.monitor"
+        },
+        {
+          "id": "omarchy.menu"
         }
       ],
       "center": [
@@ -37,13 +37,13 @@
           ]
         },
         {
+          "id": "omarchy.system-update"
+        },
+        {
           "id": "omarchy.clock",
           "format": "dddd h:mm AP",
           "formatAlt": "d MMMM 'W'ww yyyy",
           "verticalFormat": "hh\n—\nmm"
-        },
-        {
-          "id": "omarchy.system-update"
         },
         {
           "id": "omarchy.weather"
