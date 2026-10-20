@@ -57,6 +57,7 @@ noto-fonts-cjk
 noto-fonts-emoji
 npm
 pacman-contrib
+pandoc-cli
 pipewire
 pipewire-alsa
 pipewire-jack

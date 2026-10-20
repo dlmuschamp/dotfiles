@@ -1,0 +1,45 @@
+#+TITLE: A Small Summation Essay
+#+AUTHOR: Damian Luciano Muschamp
+#+DATE: October 19, 2026
+#+INSTRUCTOR: Professor Example
+#+COURSE: Algebra 101
+#+PDF_TEMPLATE: essay
+#+OPTIONS: toc:nil
+
+* Introduction
+This example is an Org document with native Typst mathematics. Export it with
+=org-pdf typst/org/example.org= from the dotfiles directory. The resulting PDF
+is written beside this file. Change =PDF_TEMPLATE= to =report= or =notes= to
+try another style, or override it with =--template report= on the command line.
+
+The inline expression $sqrt(2)$ uses Typst syntax. So does $sum_(k=1)^n k$.
+These are not LaTeX equations and do not require a TeX installation.
+
+* A useful identity
+The first $n$ positive integers have a simple sum:
+
+$ sum_(k=1)^n k = (n(n+1))/2 $
+
+A longer display equation may use delimiters on their own lines:
+
+$
+  integral_0^1 x dif x = 1/2
+$
+
+* A short plan
+- State the identity clearly.
+- Check a small example.
+- Explain why the result is useful.
+
+1. For $n=3$, the left side is $1+2+3=6$.
+2. The right side is $(3(3+1))/2=6$.
+3. The two expressions agree.
+
+#+begin_quote
+Good mathematical writing connects the symbols to an explanation in words.
+#+end_quote
+
+* Conclusion
+Org supplies the outline, lists, and prose. Pandoc converts that structure,
+and Typst renders the equations and page layout. Keep native display equations
+on standalone lines with blank lines around them, as above.

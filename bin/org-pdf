@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""Export Org prose and native Typst mathematics using Pandoc and Typst."""
+import argparse
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+ASSETS = ROOT / "typst" / "org"
+BUILTINS = ASSETS / "templates"
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*\Z")
+
+
+def user_templates():
+    return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "org-writing" / "templates"
+
+
+def templates():
+    result = {p.stem: p for p in BUILTINS.glob("*.typ")}
+    # Builtins cannot be silently shadowed by user templates.
+    result.update({p.stem: p for p in user_templates().glob("*.typ") if p.stem not in result and NAME.fullmatch(p.stem)})
+    return result
+
+
+def prepare(text):
+    """Normalize standalone Typst display math without touching literal blocks.
+
+    Org does not recognize `$ x $`. Use its $$ delimiter for Pandoc's reader.
+    Raw export blocks remain untouched, as do source/example/comment blocks.
+    """
+    lines = text.splitlines(keepends=True)
+    result = []
+    block = None
+    display = False
+    for line in lines:
+        start = re.match(r"\s*#\+begin_(\S+)", line, re.I)
+        if block:
+            result.append(line)
+            if re.match(r"\s*#\+end_" + re.escape(block) + r"\s*$", line, re.I):
+                block = None
+            continue
+        if start:
+            block = start.group(1)
+            result.append(line)
+            continue
+        stripped = line.strip()
+        if not display and re.fullmatch(r"\$\s+[^$]+\s+\$", stripped):
+            line = line.replace("$", "$$")
+        elif not display and re.match(r"^\$\s", line.lstrip()) and stripped.count("$") == 1:
+            line = line.replace("$", "$$", 1)
+            display = True
+        elif display and stripped.endswith("$") and stripped.count("$") == 1:
+            index = line.rfind("$")
+            line = line[:index] + "$$" + line[index + 1:]
+            display = False
+        result.append(line)
+    if display:
+        raise ValueError("unclosed standalone Typst display equation")
+    return "".join(result)
+
+
+def header_metadata(text):
+    """Read CLI-specific keywords before the first heading, never in blocks."""
+    metadata = {}
+    block = None
+    for line in text.splitlines():
+        if block:
+            if re.fullmatch(r"[ \t]*#\+end_" + re.escape(block) + r"[ \t]*", line, re.I):
+                block = None
+            continue
+        start = re.match(r"[ \t]*#\+begin_(\S+)", line, re.I)
+        if start:
+            block = start.group(1)
+            continue
+        if re.match(r"^\*+[ \t]", line):
+            break
+        keyword = re.fullmatch(r"[ \t]*#\+(PDF_TEMPLATE|INSTRUCTOR|COURSE):[ \t]*(.*?)[ \t]*", line, re.I)
+        if keyword:
+            key, value = keyword.groups()
+            metadata[key.lower().replace("_", "-")] = value
+    return metadata
+
+
+def run(command, **kwargs):
+    process = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    if process.returncode:
+        raise ValueError(f"{Path(command[0]).name} failed:\n{process.stderr.strip() or process.stdout.strip()}")
+    return process.stdout
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("file", nargs="?", type=Path)
+    parser.add_argument("--template")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--open", action="store_true")
+    parser.add_argument("--list-templates", action="store_true")
+    parser.add_argument("--import-template", type=Path)
+    parser.add_argument("--name")
+    args = parser.parse_args()
+    try:
+        available = templates()
+        if args.list_templates:
+            if args.file or args.import_template:
+                raise ValueError("--list-templates cannot be combined with an input")
+            print("\n".join(sorted(available)))
+            return 0
+        if args.import_template:
+            if args.file:
+                raise ValueError("--import-template cannot be combined with an Org input")
+            source = args.import_template.expanduser().resolve()
+            name = args.name or source.stem
+            if not NAME.fullmatch(name) or source.suffix.lower() != ".typ":
+                raise ValueError("template must be a .typ file with a simple alphanumeric, underscore or hyphen name")
+            if name in available:
+                raise ValueError(f"template already exists: {name}")
+            content = source.read_text()
+            if "$body$" not in content:
+                raise ValueError("expected a Pandoc Typst template containing $body$, not a standalone Typst document")
+            destination = user_templates() / (name + ".typ")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x") as handle:
+                handle.write(content)
+            print(destination)
+            return 0
+        if args.name:
+            raise ValueError("--name requires --import-template")
+        if not args.file:
+            parser.error("an Org file is required")
+        source = args.file.expanduser().resolve(strict=True)
+        if source.suffix.lower() != ".org":
+            raise ValueError("input must be an .org file")
+        text = source.read_text()
+        metadata = header_metadata(text)
+        selected = args.template or metadata.get("pdf-template", "essay")
+        if selected not in available:
+            raise ValueError(f"unknown template {selected!r}. Available: {', '.join(sorted(available))}")
+        pandoc = shutil.which("pandoc")
+        typst = Path("/usr/bin/typst")
+        if not pandoc:
+            raise ValueError("Pandoc is missing. Install pandoc-cli (Arch) and ensure pandoc is on PATH")
+        if not os.access(typst, os.X_OK):
+            raise ValueError("Typst is missing: expected executable /usr/bin/typst (install typst)")
+        output = (args.output.expanduser().absolute() if args.output else source.with_suffix(".pdf"))
+        if output.suffix.lower() != ".pdf":
+            raise ValueError("output must have a .pdf extension")
+        if output.resolve() == source:
+            raise ValueError("output must not replace the source")
+        if not output.parent.is_dir():
+            raise ValueError(f"output directory does not exist: {output.parent}")
+        # Temporary PDF is on the destination filesystem for atomic os.replace.
+        with tempfile.TemporaryDirectory(prefix=".org-pdf-", dir=output.parent) as directory:
+            temporary = Path(directory)
+            command = [pandoc, "--from=org", "--to=typst", "--standalone", "--template", str(available[selected]), "--lua-filter", str(ASSETS / "native-math.lua")]
+            for key in ("instructor", "course"):
+                if key in metadata:
+                    command += ["--metadata", key + "=" + metadata[key]]
+            generated = run(command, input=prepare(text), cwd=source.parent)
+            # stdin keeps relative image/include paths relative to the Org directory.
+            staged = temporary / "result.pdf"
+            run([str(typst), "compile", "--root", str(source.parent), "--format", "pdf", "-", str(staged)], input=generated, cwd=source.parent)
+            os.replace(staged, output)
+        print(output)
+        if args.open:
+            opener = shutil.which("xdg-open")
+            if not opener:
+                raise ValueError(f"PDF saved to {output}, but xdg-open is missing")
+            run([opener, str(output)])
+        return 0
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"org-pdf: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

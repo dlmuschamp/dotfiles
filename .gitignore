@@ -12,3 +12,7 @@ session-token.txt
 
 # Doom local secrets (OAuth client secrets, calendar IDs, etc.)
 doom/private/
+
+# Python command/test bytecode is generated locally, not configuration.
+__pycache__/
+*.py[cod]
