@@ -30,6 +30,42 @@ Open with `nvim paper.org`. Press `Esc` before using the shortcuts below.
 your cursor. A chosen correction preserves your position, except that Neovim
 must clamp a column beyond the new end of a shortened line.
 
+## Math, code, and image insertion shortcuts
+
+Snippets load automatically for all Org files. Restart Neovim after updating
+configuration, or run `:lua require('config.org-snippets')` in an existing session.
+No manual `:luafile` step is needed.
+
+| Normal-mode command | Inserts |
+| --- | --- |
+| `:OrgSnippet math` | Centered Typst math |
+| `:OrgSnippet inline` | Inline Typst math at the cursor |
+| `:OrgSnippet matlab` | MATLAB source listing |
+| `:OrgSnippet typst` | Typst source listing (printed code) |
+| `:OrgSnippet rawtypst` | Typst export block (rendered markup) |
+| `:OrgSnippet code` | Source listing with editable language |
+| `:OrgSnippet image` | Caption and image file link |
+
+Type over the selected placeholder. **Ctrl-j** advances to the next placeholder,
+and **Ctrl-k** goes back. Start blocks on an empty line. Normal-mode localleader
+shortcuts are `m`, `i`, `a`, `t`, `r`, `c`, and `f`, respectively. Inspect your
+prefix with `:lua print(vim.g.maplocalleader or '\\')`.
+
+### Embed a diagram or MATLAB plot
+
+Save a PNG or SVG beside the Org file, or in a subdirectory. Run
+`:OrgSnippet image`, enter the caption, press Ctrl-j, and enter its relative path:
+
+```org
+#+CAPTION: Fourier coefficients
+[[file:Fourier_Coeff_Plot.png]]
+```
+
+Use `:OrgPdf` to embed the actual image in the PDF. This is PDF embedding, not
+an inline graphical preview in Neovim. MATLAB code listings are not executed:
+run your plotting script separately so its `exportgraphics` calls create the
+PNG files first. Keep assets within the document directory or its subdirectories.
+
 ## Start a document
 
 ```org
