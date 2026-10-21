@@ -65,6 +65,7 @@ return {
     lazy = false,
     config = function()
       require("config.org-writing").setup()
+      require("config.org-snippets")
     end,
   },
 }
