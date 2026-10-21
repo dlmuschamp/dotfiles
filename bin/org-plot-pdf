@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""Explicitly run Org MATLAB plots, then invoke the sibling org-pdf.
+
+Example: #+begin_src matlab :plot yes :file figures/demo.png :eval yes
+Each selected body runs in its own local function workspace, in document order.
+No Org properties or inherited headers are consulted. Ordinary blocks never run.
+MATLAB code is arbitrary code running with your permissions, NOT a sandbox.
+Outputs are staged and individually atomically replaced only after all plots pass.
+Code can itself modify files, so staging cannot protect against malicious bodies.
+"""
+import argparse
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+
+MARKER = re.compile(r'^\s*#\+(begin|end)_([\w-]+)(?:\s+(.*))?\s*$', re.I)
+
+
+def output_path(root, name):
+    path = Path(name)
+    if (not name or path.is_absolute() or '..' in path.parts
+            or '\\' in name or any(ord(c) < 32 for c in name)
+            or path.suffix not in ('.png', '.svg')):
+        raise ValueError('unsafe :file path: ' + name)
+    destination = root / path
+    if not destination.resolve().is_relative_to(root.resolve()):
+        raise ValueError(':file must remain inside document root: ' + name)
+    if destination.exists() and not destination.is_file():
+        raise ValueError(':file is not a regular file: ' + name)
+    return destination
+
+
+def headers(text):
+    try:
+        tokens = shlex.split(text, comments=False)
+    except ValueError as error:
+        raise ValueError('malformed source header: ' + str(error)) from error
+    if not tokens or tokens[0].startswith(':'):
+        raise ValueError('source header requires a language')
+    result = {}
+    index = 1
+    while index < len(tokens):
+        key = tokens[index]
+        if not key.startswith(':') or len(key) == 1:
+            raise ValueError('malformed source header near ' + key)
+        index += 1
+        values = []
+        while index < len(tokens) and not tokens[index].startswith(':'):
+            values.append(tokens[index])
+            index += 1
+        if key in result and key in (':plot', ':file', ':eval'):
+            raise ValueError('duplicate header ' + key)
+        result[key] = values
+    return tokens[0], result
+
+
+def parse(text, root):
+    """Return (body, destination) pairs from top-level source blocks only."""
+    stack = []
+    selected = []
+    seen = set()
+    body = []
+    destination = None
+    for line in text.splitlines(keepends=True):
+        marker = MARKER.match(line)
+        # Source bodies are opaque, even when containing Org-looking strings.
+        if stack and stack[-1] == 'src':
+            if marker and marker[1].lower() == 'end' and marker[2].lower() == 'src':
+                stack.pop()
+                if destination is not None:
+                    selected.append((''.join(body), destination))
+                destination = None
+                body = []
+            elif destination is not None:
+                body.append(line)
+            continue
+        if not marker:
+            continue
+        action, kind, rest = marker.groups()
+        action, kind = action.lower(), kind.lower()
+        if action == 'end':
+            if not stack or stack.pop() != kind:
+                raise ValueError('unmatched block ending: ' + kind)
+            continue
+        if kind == 'src' and not stack:
+            language, args = headers(rest or '')
+            if args.get(':plot') == ['yes']:
+                if language != 'matlab':
+                    raise ValueError(':plot yes requires language matlab')
+                if any(v.lower() in ('never', 'no') for v in args.get(':eval', [])):
+                    raise ValueError(':plot yes conflicts with :eval never/no, use :eval yes')
+                files = args.get(':file', [])
+                if len(files) != 1:
+                    raise ValueError(':plot yes requires one :file')
+                destination = output_path(root, files[0])
+                identity = destination.resolve()
+                if identity in seen:
+                    raise ValueError('duplicate output: ' + files[0])
+                seen.add(identity)
+        stack.append(kind)
+    if stack:
+        raise ValueError('unclosed block: ' + stack[-1])
+    if not selected:
+        raise ValueError('no top-level MATLAB blocks with exact :plot yes')
+    return selected
+
+
+def quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def run_matlab(command, cwd, timeout):
+    process = subprocess.Popen(command, cwd=cwd, start_new_session=True)
+    try:
+        status = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, AttributeError):
+            process.kill()
+        process.wait()
+        raise ValueError('MATLAB timed out after %s seconds' % timeout)
+    if status:
+        raise ValueError('MATLAB failed with exit status %s' % status)
+
+
+def export(document, matlab='matlab', timeout=120, open_pdf=False):
+    document = Path(document).resolve(strict=True)
+    root = document.parent
+    blocks = parse(document.read_text(), root)
+    executable = shutil.which(matlab)
+    if executable is None:
+        raise ValueError('MATLAB executable not found: %s (use --matlab PATH)' % matlab)
+    with tempfile.TemporaryDirectory(prefix='.org-plot-', dir=root) as directory, \
+            tempfile.NamedTemporaryFile(prefix='org_plot_', suffix='.m', dir=root) as script_file:
+        stage = Path(directory)
+        outputs = [stage / ('plot-%d%s' % (i, dest.suffix))
+                   for i, (_, dest) in enumerate(blocks)]
+        script = Path(script_file.name)
+        calls = ["set(groot, 'defaultFigureVisible', 'off');"]
+        functions = []
+        for i, ((body, _), output) in enumerate(zip(blocks, outputs)):
+            calls.append('org_plot_%d();' % i)
+            functions.append("function org_plot_%d()\nclose all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\nexportgraphics(gcf, %s);\nend\n" % (i, body, quote(output)))
+        script.write_text('\n'.join(calls + functions))
+        run_matlab([executable, '-batch', 'run(%s)' % quote(script)], root, timeout)
+        for output in outputs:
+            if output.is_symlink() or not output.is_file() or output.stat().st_size == 0:
+                raise ValueError('MATLAB did not generate expected plot: ' + output.name)
+        for (_, destination), output in zip(blocks, outputs):
+            output_path(root, str(destination.relative_to(root)))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(output, destination)
+    command = [str(Path(__file__).resolve().with_name('org-pdf')), str(document)]
+    if open_pdf:
+        command.append('--open')
+    subprocess.run(command, cwd=root, check=True)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('file', type=Path)
+    parser.add_argument('--open', action='store_true')
+    parser.add_argument('--matlab', default='matlab')
+    parser.add_argument('--timeout', type=float, default=120)
+    args = parser.parse_args(argv)
+    try:
+        if not 0 < args.timeout < float('inf'):
+            raise ValueError('--timeout must be positive and finite')
+        export(args.file, args.matlab, args.timeout, args.open)
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        print('org-plot-pdf: ' + str(error), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
