@@ -98,7 +98,11 @@ class PlotTests(unittest.TestCase):
         self.assertEqual(self.script.count('close all force;'), 2)
         self.assertIn("defaultFigureVisible', 'off'", self.script)
         self.assertIn("plot''s tests", self.script)
-        for path in re.findall(r"exportgraphics\(gcf, '((?:[^']|'')*)'\)", self.script):
+        self.assertNotIn('gcf', self.script)
+        self.assertEqual(self.script.count("get(groot, 'CurrentFigure')"), 2)
+        self.assertEqual(self.script.count('if isempty(org_plot_figure)'), 2)
+        self.assertIn("error('org_plot:noFigure'", self.script)
+        for path in re.findall(r"exportgraphics\(org_plot_figure, '((?:[^']|'')*)'\)", self.script):
             Path(path.replace("''", "'")).write_bytes(b'new plot')
 
     def test_success_arguments_workspaces_staging_and_open(self):

@@ -147,7 +147,7 @@ def export(document, matlab='matlab', timeout=120, open_pdf=False):
         functions = []
         for i, ((body, _), output) in enumerate(zip(blocks, outputs)):
             calls.append('org_plot_%d();' % i)
-            functions.append("function org_plot_%d()\nclose all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\nexportgraphics(gcf, %s);\nend\n" % (i, body, quote(output)))
+            functions.append("function org_plot_%d()\nclose all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\norg_plot_figure = get(groot, 'CurrentFigure');\nif isempty(org_plot_figure)\nerror('org_plot:noFigure', 'Plot block did not create a figure');\nend\nexportgraphics(org_plot_figure, %s);\nend\n" % (i, body, quote(output)))
         script.write_text('\n'.join(calls + functions))
         run_matlab([executable, '-batch', 'run(%s)' % quote(script)], root, timeout)
         for output in outputs:
