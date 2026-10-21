@@ -252,7 +252,7 @@ def main():
         # Temporary PDF is on the destination filesystem for atomic os.replace.
         with tempfile.TemporaryDirectory(prefix=".org-pdf-", dir=output.parent) as directory:
             temporary = Path(directory)
-            command = [pandoc, "--from=org", "--to=typst", "--standalone", "--preserve-tabs", "--tab-stop=4", "--template", str(available[selected]), "--lua-filter", str(ASSETS / "native-math.lua"), "--lua-filter", str(ASSETS / "code.lua")]
+            command = [pandoc, "--from=org", "--to=typst", "--standalone", "--preserve-tabs", "--tab-stop=4", "--template", str(available[selected]), "--lua-filter", str(ASSETS / "native-math.lua"), "--lua-filter", str(ASSETS / "code.lua"), "--lua-filter", str(ASSETS / "images.lua")]
             for key in ("instructor", "course"):
                 if key in metadata:
                     command += ["--metadata", key + "=" + metadata[key]]
