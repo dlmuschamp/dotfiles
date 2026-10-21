@@ -13,6 +13,8 @@ tools:
 - *Editor & Viewer:* Neovim, Doom Emacs, Sioyek
   - Org notes, PDF templates, and spelling corrections in Neovim:
     [[file:nvim/ORG-WRITING.md][Org writing guide]]
+  - Local MATLAB CLI, plot generation, and image embedding without MATLAB Online:
+    [[file:docs/matlab-org-plots.md][MATLAB and Org plotting guide]]
 - *Wayland & UI:* Hyprland Lua configuration, Omarchy's Quickshell UI,
   Hyprlock, and Hypridle
 - *Writing:* Org mode with Typst math, plus clean LaTeX PDF export for
