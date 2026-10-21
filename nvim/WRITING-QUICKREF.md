@@ -66,6 +66,41 @@ an inline graphical preview in Neovim. MATLAB code listings are not executed:
 run your plotting script separately so its `exportgraphics` calls create the
 PNG files first. Keep assets within the document directory or its subdirectories.
 
+### Generate MATLAB plots with one toggle
+
+Use `:OrgSnippet matlab`, write your MATLAB code, and change only `:plot never`
+to `:plot yes` when you want a figure. Then run **`:OrgPlotPdf`** and confirm.
+`:OrgPlotPdf!` runs and exports without opening a viewer.
+
+```org
+#+begin_src matlab :exports code :eval never :plot never
+% Your own MATLAB code goes here.
+#+end_src
+```
+
+No manual filename, `exportgraphics`, or image link is required. After successful
+MATLAB generation the runner adds a `:file figures/<document>-plot-1.png` header
+and a matching image link below the block. It never changes your MATLAB body.
+Existing paths and links are respected. `:OrgSnippet plot` starts already enabled.
+Keep `:eval never`: explicit `:plot yes` authorizes this dedicated command, while
+ordinary `:OrgPdf` still never executes code.
+
+Enabled blocks run in order and share variables, like one script. Enable earlier
+blocks if their variables are needed. Each enabled block must create a figure.
+Figures are reset between blocks so old plots cannot silently be reused. Disabled
+blocks never execute. Switching back to `:plot never` leaves existing images in
+the PDF until you remove their links yourself.
+
+The editor reloads generated links only if you have not edited the buffer during
+execution. Save or reconcile any concurrent edits before rerunning. The command
+requires confirmation and runs with your user permissions, not in a sandbox.
+Local licensed MATLAB must be on PATH. CLI use is explicit authorization without
+a prompt: `~/dotfiles/bin/org-plot-pdf file.org --timeout 300`.
+
+Restart Neovim to load updated snippets and commands. For sign-in, manual image
+embedding, filename checks, and authorship guidance, see
+[local MATLAB and Org plots](../docs/matlab-org-plots.md).
+
 ## Start a document
 
 ```org

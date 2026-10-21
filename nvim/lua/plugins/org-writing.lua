@@ -66,6 +66,7 @@ return {
     config = function()
       require("config.org-writing").setup()
       require("config.org-snippets")
+      require("config.org-plot-export")
     end,
   },
 }

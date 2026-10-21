@@ -1,10 +1,11 @@
 -- Loaded automatically by the org-writing plugin configuration.
 -- Only Org buffers receive snippet mappings.
 local templates = {
+  plot = '#+begin_src matlab :exports code :eval never :plot yes\n${1:% Your MATLAB plotting code here}\n#+end_src\n$0',
   image = '#+CAPTION: ${1:Diagram caption}\n[[file:${2:figure.png}]]\n$0',
   math = '\\$ ${1:x^2 + y^2 = z^2} \\$\n$0',
   inline = '\\$${1:x_i}\\$$0',
-  matlab = '#+begin_src matlab :exports code :eval never\n${1:% MATLAB code here}\n#+end_src\n$0',
+  matlab = '#+begin_src matlab :exports code :eval never :plot never\n${1:% MATLAB code here}\n#+end_src\n$0',
   typst = '#+begin_src typst :exports code :eval never\n${1:#text("Hello")}\n#+end_src\n$0',
   rawtypst = '#+begin_export typst\n${1:#align(center)[Hello]}\n#+end_export\n$0',
   code = '#+begin_src ${1:matlab} :exports code :eval never\n${2:code here}\n#+end_src\n$0',
@@ -14,7 +15,7 @@ local function insert(kind)
     return vim.notify('Open an Org document first', vim.log.levels.WARN)
   end
   if not templates[kind] then
-    return vim.notify('Choose math, inline, matlab, typst, rawtypst, code, or image', vim.log.levels.WARN)
+    return vim.notify('Choose math, inline, matlab, typst, rawtypst, code, image, or plot', vim.log.levels.WARN)
   end
   -- Block snippets start below nonempty lines, rather than breaking prose.
   if kind ~= 'inline' and vim.api.nvim_get_current_line():match('%S') then
@@ -32,10 +33,10 @@ end
 vim.api.nvim_create_user_command('OrgSnippet', function(opts)
   insert(opts.args)
 end, { nargs = 1, force = true, complete = function()
-  return { 'math', 'inline', 'matlab', 'typst', 'rawtypst', 'code', 'image' }
+  return { 'math', 'inline', 'matlab', 'typst', 'rawtypst', 'code', 'image', 'plot' }
 end })
 local function attach(buf)
-  for key, kind in pairs({ m = 'math', i = 'inline', c = 'code', a = 'matlab', t = 'typst', r = 'rawtypst', f = 'image' }) do
+  for key, kind in pairs({ m = 'math', i = 'inline', c = 'code', a = 'matlab', t = 'typst', r = 'rawtypst', f = 'image', p = 'plot' }) do
     vim.keymap.set('n', '<localleader>' .. key, function() insert(kind) end,
       { buffer = buf, desc = 'Insert Org ' .. kind })
   end

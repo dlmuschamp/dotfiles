@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, ANY
 
 CLI = Path(__file__).resolve().parents[1] / 'bin/org-plot-pdf'
 loader = importlib.machinery.SourceFileLoader('org_plot_pdf', str(CLI))
@@ -58,10 +58,8 @@ class PlotTests(unittest.TestCase):
         for header in ('matlab :plot yes :file "unterminated',
                        'matlab :plot yes :plot no :file a.png',
                        'matlab :file a.png :file b.png :plot yes',
-                       'matlab :plot yes', 'matlab :plot yes :file a.png b.png',
+                       'matlab :plot yes :file a.png b.png',
                        'python :plot yes :file a.png',
-                       'matlab :plot yes :file a.png :eval never',
-                       'matlab :plot yes :file a.png :eval no',
                        'matlab :plot yes :file a.png :eval yes :eval no',
                        'matlab stray :plot yes :file a.png'):
             with self.subTest(header=header), self.assertRaises(ValueError):
@@ -94,7 +92,7 @@ class PlotTests(unittest.TestCase):
         self.assertEqual(script.parent, cwd)
         self.assertEqual(command[2], 'run(%s)' % module.quote(script))
         self.script = script.read_text()
-        self.assertLess(self.script.index('org_plot_0();'), self.script.index('org_plot_1();'))
+        self.assertNotIn('function ', self.script)
         self.assertEqual(self.script.count('close all force;'), 2)
         self.assertIn("defaultFigureVisible', 'off'", self.script)
         self.assertIn("plot''s tests", self.script)
@@ -116,10 +114,11 @@ class PlotTests(unittest.TestCase):
                                     cwd=self.root, check=True)
         self.assertEqual(self.asset.read_bytes(), b'new plot')
         self.assertEqual((self.root / 'b.svg').read_bytes(), b'new plot')
-        self.assertIn('function org_plot_0()', self.script)
+        self.assertLess(self.script.index('plot(1:3);'), self.script.index('plot(3:5);'))
         self.assertFalse(list(self.root.glob('.org-plot-*')))
 
     def test_failure_and_stale_outputs_preserve_assets_and_pdf(self):
+        original = self.doc.read_bytes()
         def partial(command, cwd, timeout):
             next(self.root.glob('.org-plot-*')).joinpath('plot-0.png').write_bytes(b'partial')
         for effect in (ValueError('MATLAB failed'), None, partial):
@@ -131,6 +130,7 @@ class PlotTests(unittest.TestCase):
                     module.export(self.doc)
                 pdf.assert_not_called()
                 self.assert_preserved()
+                self.assertEqual(self.doc.read_bytes(), original)
 
     def test_missing_matlab_and_no_selected_preflight(self):
         with patch.object(module.shutil, 'which', return_value=None), \
@@ -152,7 +152,9 @@ class PlotTests(unittest.TestCase):
                 patch.object(module.os, 'killpg') as kill:
             with self.assertRaisesRegex(ValueError, 'timed out'):
                 module.run_matlab(['matlab', '-batch', 'run'], self.root, 1)
-        popen.assert_called_once_with(['matlab', '-batch', 'run'], cwd=self.root, start_new_session=True)
+        popen.assert_called_once_with(['matlab', '-batch', 'run'], cwd=self.root,
+                                      start_new_session=True, stdout=ANY, stderr=ANY)
+        self.assertIs(popen.call_args.kwargs['stdout'], popen.call_args.kwargs['stderr'])
         kill.assert_called_once_with(123, module.signal.SIGKILL)
         self.assertEqual(process.wait.call_count, 2)
 
@@ -171,6 +173,127 @@ class PlotTests(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()), patch.object(module, 'export') as export:
                 self.assertEqual(module.main([str(self.doc), '--timeout', value]), 1)
                 export.assert_not_called()
+
+    def test_toggle_overrides_eval_and_generated_ordinals(self):
+        text = block('matlab :plot never') + block('python') + block('matlab')
+        text += '#+begin_quote\n' + block('matlab') + '#+end_quote\n'
+        text += block('matlab :plot yes :eval never')
+        text += block('matlab :plot yes :eval no')
+        blocks = module.parse_blocks(text, self.root, 'A weird! name')
+        self.assertEqual([b['name'] for b in blocks],
+                         ['figures/A-weird-name-plot-3.png', 'figures/A-weird-name-plot-4.png'])
+        with self.assertRaisesRegex(ValueError, 'duplicate output'):
+            self.parse(block('matlab :plot yes') +
+                       block('matlab :plot yes :file figures/document-plot-1.png'))
+        with self.assertRaisesRegex(ValueError, 'change :plot never to :plot yes'):
+            self.parse(block('matlab :plot never') + block('matlab :plot no'))
+
+    def test_materialization_preserves_bodies_prose_permissions_and_is_idempotent(self):
+        prose = 'Math $x^2$ and \\[a+b\\].\r\n'
+        body = "x = 1:3;\n% Org-looking #+begin_quote\nplot(x);"
+        original = prose + block('matlab :plot yes :eval never', body)
+        original += prose + block('matlab :plot yes :file b.svg :eval no', 'plot(x.^2);')
+        original += '#+CAPTION: Existing elsewhere\n[[file:b.svg][plot]]\n' + prose
+        self.doc.write_bytes(original.encode())
+        self.doc.chmod(0o640)
+        with patch.object(module.shutil, 'which', return_value='/mock/matlab'), \
+                patch.object(module, 'run_matlab', side_effect=self.fake_matlab), \
+                patch.object(module.subprocess, 'run'):
+            module.export(self.doc, timeout=9)
+            first = self.doc.read_bytes()
+            module.export(self.doc, timeout=9)
+        self.assertEqual(self.doc.read_bytes(), first)
+        expected = original.replace(':eval never\n', ':eval never :file figures/document-plot-1.png\n', 1)
+        expected = expected.replace('#+end_src\n', '#+end_src\n[[file:figures/document-plot-1.png]]\n', 1)
+        self.assertEqual(first.decode(), expected)
+        self.assertEqual(self.doc.stat().st_mode & 0o777, 0o640)
+        self.assertIn(body, first.decode())
+        self.assertIn('x = 1:3;', self.script)
+        self.assertIn('plot(x.^2);', self.script)
+        self.assertNotIn('clear', self.script)
+
+    def test_explicit_missing_link_and_existing_plain_link(self):
+        text = block() + block('matlab :plot yes :file b.svg')
+        text += '#+CAPTION: Elsewhere\n[[file:plots/./a.png]]\n'
+        result = module.materialize(text, module.parse_blocks(text, self.root))
+        self.assertEqual(result.count('[[file:plots/'), 1)
+        self.assertIn('#+end_src\n[[file:b.svg]]\n', result)
+        self.assertEqual(module.materialize(result, module.parse_blocks(result, self.root)), result)
+
+    def test_links_inside_blocks_and_inline_prose_do_not_suppress_image(self):
+        for hidden in ("label = '[[file:plots/a.png]]';\n",
+                       '% [[file:plots/a.png]]\n',
+                       '[[file:plots/a.png]]\n'):
+            text = block(body=hidden + 'plot(1:3);')
+            for kind in ('comment', 'example', 'export', 'quote'):
+                text += '#+begin_' + kind + '\n[[file:plots/a.png]]\n#+end_' + kind + '\n'
+            text += 'An inline reference [[file:plots/a.png]] does not embed an image.\n'
+            with self.subTest(hidden=hidden):
+                result = module.materialize(text, module.parse_blocks(text, self.root))
+                self.assertEqual(result, text.replace('#+end_src\n',
+                                 '#+end_src\n[[file:plots/a.png]]\n', 1))
+                self.assertEqual(module.materialize(result, module.parse_blocks(result, self.root)), result)
+
+    def test_concurrent_edit_refuses_all_publication(self):
+        edited = self.doc.read_bytes() + b'User concurrent edit\n'
+        def concurrent(command, cwd, timeout):
+            self.fake_matlab(command, cwd, timeout)
+            self.doc.write_bytes(edited)
+        with patch.object(module.shutil, 'which', return_value='/mock/matlab'), \
+                patch.object(module, 'run_matlab', side_effect=concurrent), \
+                patch.object(module.subprocess, 'run') as pdf:
+            with self.assertRaisesRegex(ValueError, 'document changed'):
+                module.export(self.doc, timeout=9)
+        self.assertEqual(self.doc.read_bytes(), edited)
+        self.assertFalse((self.root / 'b.svg').exists())
+        pdf.assert_not_called()
+        self.assert_preserved()
+
+    def test_log_is_replayed_without_inheriting_outer_pipes(self):
+        def launch(*args, **kwargs):
+            kwargs['stdout'].write(b'MATLAB diagnostic\n')
+            return Mock(wait=Mock(return_value=0))
+        captured = io.StringIO()
+        with patch.object(module.subprocess, 'Popen', side_effect=launch), \
+                contextlib.redirect_stdout(captured):
+            module.run_matlab(['matlab'], self.root, 1)
+        self.assertEqual(captured.getvalue(), 'MATLAB diagnostic\n')
+
+    def test_nonselected_bodies_are_never_in_script(self):
+        text = block('matlab :plot no', "error('DO_NOT_EXECUTE');")
+        text += block('matlab :plot yes :eval never', 'shared = 17; plot(shared);')
+        text += block('matlab :plot never', "error('ALSO_NOT');")
+        text += block('matlab :plot yes :eval no', 'plot(shared + 1);')
+        self.doc.write_text(text)
+        with patch.object(module.shutil, 'which', return_value='/mock/matlab'), \
+                patch.object(module, 'run_matlab', side_effect=self.fake_matlab), \
+                patch.object(module.subprocess, 'run'):
+            module.export(self.doc, timeout=9)
+        self.assertNotIn('DO_NOT_EXECUTE', self.script)
+        self.assertNotIn('ALSO_NOT', self.script)
+        self.assertLess(self.script.index('shared = 17;'), self.script.index('plot(shared + 1);'))
+        self.assertRegex(self.script, r'close all force;\nset\(groot[^\n]+\nshared = 17;')
+        self.assertRegex(self.script, r'close all force;\nset\(groot[^\n]+\nplot\(shared \+ 1\);')
+        self.assertTrue((self.root / 'figures/document-plot-2.png').is_file())
+        self.assertTrue((self.root / 'figures/document-plot-4.png').is_file())
+
+    def test_generated_headers_and_links_not_written_on_failure(self):
+        original = block('matlab :plot yes :eval never').encode()
+        self.doc.write_bytes(original)
+        with patch.object(module.shutil, 'which', return_value='/mock/matlab'), \
+                patch.object(module, 'run_matlab', side_effect=ValueError('MATLAB failed')), \
+                patch.object(module.subprocess, 'run') as pdf:
+            with self.assertRaisesRegex(ValueError, 'MATLAB failed'):
+                module.export(self.doc)
+        self.assertEqual(self.doc.read_bytes(), original)
+        self.assertFalse((self.root / 'figures').exists())
+        pdf.assert_not_called()
+
+    def test_generated_path_symlink_escape_rejected(self):
+        with tempfile.TemporaryDirectory() as outside:
+            (self.root / 'figures').symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'document root'):
+                self.parse(block('matlab :plot yes'))
 
 
 if __name__ == '__main__':

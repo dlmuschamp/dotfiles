@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Explicitly run Org MATLAB plots, then invoke the sibling org-pdf.
 
-Example: #+begin_src matlab :plot yes :file figures/demo.png :eval yes
-Each selected body runs in its own local function workspace, in document order.
+Example: #+begin_src matlab :plot yes
+Literal :plot yes is authoritative, even with :eval never or :eval no.
+Selected bodies run in a shared script workspace, in document order.
 No Org properties or inherited headers are consulted. Ordinary blocks never run.
 MATLAB code is arbitrary code running with your permissions, NOT a sandbox.
 Outputs are staged and individually atomically replaced only after all plots pass.
@@ -60,21 +61,24 @@ def headers(text):
     return tokens[0], result
 
 
-def parse(text, root):
-    """Return (body, destination) pairs from top-level source blocks only."""
+def parse_blocks(text, root, stem='document'):
+    """Return selected blocks plus exact header and end-marker locations."""
     stack = []
     selected = []
     seen = set()
     body = []
     destination = None
-    for line in text.splitlines(keepends=True):
+    ordinal = 0
+    safe_stem = re.sub(r'[^A-Za-z0-9_-]+', '-', stem).strip('-') or 'document'
+    for number, line in enumerate(text.splitlines(keepends=True)):
         marker = MARKER.match(line)
         # Source bodies are opaque, even when containing Org-looking strings.
         if stack and stack[-1] == 'src':
             if marker and marker[1].lower() == 'end' and marker[2].lower() == 'src':
                 stack.pop()
                 if destination is not None:
-                    selected.append((''.join(body), destination))
+                    selected.append(dict(body=''.join(body), destination=destination,
+                                         name=files[0], missing=missing, start=start, end=number))
                 destination = None
                 body = []
             elif destination is not None:
@@ -90,12 +94,14 @@ def parse(text, root):
             continue
         if kind == 'src' and not stack:
             language, args = headers(rest or '')
+            if language.lower() == 'matlab':
+                ordinal += 1
             if args.get(':plot') == ['yes']:
-                if language != 'matlab':
+                if language.lower() != 'matlab':
                     raise ValueError(':plot yes requires language matlab')
-                if any(v.lower() in ('never', 'no') for v in args.get(':eval', [])):
-                    raise ValueError(':plot yes conflicts with :eval never/no, use :eval yes')
-                files = args.get(':file', [])
+                missing = ':file' not in args
+                start = number
+                files = args.get(':file', ['figures/%s-plot-%d.png' % (safe_stem, ordinal)])
                 if len(files) != 1:
                     raise ValueError(':plot yes requires one :file')
                 destination = output_path(root, files[0])
@@ -107,8 +113,51 @@ def parse(text, root):
     if stack:
         raise ValueError('unclosed block: ' + stack[-1])
     if not selected:
-        raise ValueError('no top-level MATLAB blocks with exact :plot yes')
+        raise ValueError('no top-level MATLAB blocks with exact :plot yes; change :plot never to :plot yes')
     return selected
+
+
+def parse(text, root):
+    """Compatibility API returning (body, destination) pairs."""
+    return [(b['body'], b['destination']) for b in parse_blocks(text, root)]
+
+
+def materialize(text, blocks):
+    lines = text.splitlines(keepends=True)
+    existing = set()
+    stack = []
+    for line in lines:
+        marker = MARKER.match(line)
+        if stack and stack[-1] == 'src':
+            if marker and marker[1].lower() == 'end' and marker[2].lower() == 'src':
+                stack.pop()
+            continue
+        if marker:
+            action, kind, _ = marker.groups()
+            if action.lower() == 'begin':
+                stack.append(kind.lower())
+            elif stack:
+                stack.pop()
+            continue
+        if not stack:
+            link = re.fullmatch(r'\s*\[\[file:([^]\r\n]+)\](?:\[[^\r\n]*\])?\]\s*', line)
+            if link:
+                existing.add(link[1])
+    for block in reversed(blocks):
+        if block['missing']:
+            index = block['start']
+            line = lines[index]
+            ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
+            content = line[:-len(ending)] if ending else line
+            lines[index] = content + ' :file ' + block['name'] + ending
+        if not any(Path(name) == Path(block['name']) for name in existing):
+            index = block['end']
+            ending = '\r\n' if lines[index].endswith('\r\n') else '\n'
+            if not lines[index].endswith('\n'):
+                lines[index] += ending
+            lines[index] += '[[file:' + block['name'] + ']]' + ending
+            existing.add(block['name'])
+    return ''.join(lines)
 
 
 def quote(value):
@@ -116,7 +165,21 @@ def quote(value):
 
 
 def run_matlab(command, cwd, timeout):
-    process = subprocess.Popen(command, cwd=cwd, start_new_session=True)
+    # Descendant ServiceHost processes may outlive MATLAB. Never give them the
+    # caller's pipes, otherwise an outer capture can wait forever for EOF.
+    with tempfile.TemporaryFile() as log:
+        try:
+            _run_matlab(command, cwd, timeout, log)
+        finally:
+            log.seek(0)
+            while chunk := log.read(65536):
+                sys.stdout.write(chunk.decode(errors='replace'))
+            sys.stdout.flush()
+
+
+def _run_matlab(command, cwd, timeout, log):
+    process = subprocess.Popen(command, cwd=cwd, start_new_session=True,
+                               stdout=log, stderr=log)
     try:
         status = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -133,7 +196,12 @@ def run_matlab(command, cwd, timeout):
 def export(document, matlab='matlab', timeout=120, open_pdf=False):
     document = Path(document).resolve(strict=True)
     root = document.parent
-    blocks = parse(document.read_text(), root)
+    original = document.read_bytes()
+    original_stat = document.stat()
+    text = original.decode('utf-8')
+    metadata = parse_blocks(text, root, document.stem)
+    blocks = [(b['body'], b['destination']) for b in metadata]
+    updated = materialize(text, metadata).encode('utf-8')
     executable = shutil.which(matlab)
     if executable is None:
         raise ValueError('MATLAB executable not found: %s (use --matlab PATH)' % matlab)
@@ -144,19 +212,38 @@ def export(document, matlab='matlab', timeout=120, open_pdf=False):
                    for i, (_, dest) in enumerate(blocks)]
         script = Path(script_file.name)
         calls = ["set(groot, 'defaultFigureVisible', 'off');"]
-        functions = []
         for i, ((body, _), output) in enumerate(zip(blocks, outputs)):
-            calls.append('org_plot_%d();' % i)
-            functions.append("function org_plot_%d()\nclose all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\norg_plot_figure = get(groot, 'CurrentFigure');\nif isempty(org_plot_figure)\nerror('org_plot:noFigure', 'Plot block did not create a figure');\nend\nexportgraphics(org_plot_figure, %s);\nend\n" % (i, body, quote(output)))
-        script.write_text('\n'.join(calls + functions))
+            calls.append("close all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\norg_plot_figure = get(groot, 'CurrentFigure');\nif isempty(org_plot_figure)\nerror('org_plot:noFigure', 'Plot block did not create a figure');\nend\nexportgraphics(org_plot_figure, %s);\n" % (body, quote(output)))
+        script.write_text('\n'.join(calls))
         run_matlab([executable, '-batch', 'run(%s)' % quote(script)], root, timeout)
         for output in outputs:
             if output.is_symlink() or not output.is_file() or output.stat().st_size == 0:
                 raise ValueError('MATLAB did not generate expected plot: ' + output.name)
-        for (_, destination), output in zip(blocks, outputs):
+        for _, destination in blocks:
             output_path(root, str(destination.relative_to(root)))
+        current_stat = document.stat()
+        signature = lambda stat: (stat.st_dev, stat.st_ino, stat.st_size,
+                                  stat.st_mtime_ns, stat.st_ctime_ns)
+        if (document.read_bytes() != original or
+                signature(current_stat) != signature(original_stat)):
+            raise ValueError('document changed during MATLAB execution; refusing to publish outputs')
+        for (_, destination), output in zip(blocks, outputs):
             destination.parent.mkdir(parents=True, exist_ok=True)
             os.replace(output, destination)
+        if updated != original:
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(prefix='.org-plot-document-', dir=root,
+                                                 delete=False) as org_file:
+                    temporary = Path(org_file.name)
+                    os.fchmod(org_file.fileno(), original_stat.st_mode & 0o7777)
+                    org_file.write(updated)
+                    org_file.flush()
+                    os.fsync(org_file.fileno())
+                os.replace(temporary, document)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
     command = [str(Path(__file__).resolve().with_name('org-pdf')), str(document)]
     if open_pdf:
         command.append('--open')

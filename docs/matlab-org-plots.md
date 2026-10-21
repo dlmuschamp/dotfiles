@@ -4,142 +4,123 @@ Use local MATLAB for computation, Org for your write-up, and Typst for PDF expor
 MATLAB Online is not required. This guide describes the configured machine, not
 an automatic MATLAB installer or a license bundled with the dotfiles.
 
-## Preserve your own work
+## Quick start: change only `:plot never` to `:plot yes`
 
-Embedding images or configuring tools does not authorize rewriting calculations.
-Keep the author's mathematics, prose, variable names, algorithms, and numerical
-choices unchanged unless they explicitly request computational edits. Do not add
-assertions, expected-answer formulas, or alternate solutions to an assignment as
-part of setting up plotting. Surface execution errors separately instead.
+1. In an Org document, run `:OrgSnippet matlab` and write your own MATLAB code.
+   Its header starts with `:plot never`, so it is display-only by default.
+2. When you want its figure, change just `:plot never` to `:plot yes`.
+3. Run `:OrgPlotPdf` and confirm execution. The command saves the document,
+   runs the enabled blocks, generates images, inserts any missing image links,
+   builds the PDF, and opens it. `:OrgPlotPdf!` does this without opening a viewer.
 
-A source listing and its linked image are independent files. Export does not
-prove that the image came from the displayed code. If code is restored or edited,
-regenerate the images with that exact code before treating them as its results.
-Do not silently substitute Python-generated plots for MATLAB output.
+Before opting in, the structure is:
 
-## Installed CLI and sign-in
-
-On this machine:
-
-- MATLAB: `~/Applications/MATLAB/R2026b/bin/matlab`
-- PATH launcher: `~/.local/bin/matlab`
-- Launcher options: `-licmode onlinelicensing`, scoped to this launch
-- Optional installation override: `MATLAB_ROOT=/path/to/MATLAB/R2026b`
-
-The launcher selects account licensing to avoid the default licensing startup
-crash observed here. This still runs MATLAB locally, not MATLAB Online. The
-launcher was created locally and is not installed by the dotfiles bootstrap.
-On another machine, install and license MATLAB separately and put its launcher
-on PATH. Do not assume that copying this repository installs MATLAB.
-
-Check the CLI, then sign in to the MathWorks window if requested:
-
-```sh
-command -v matlab
-matlab -batch "disp(version); disp(license('test','MATLAB'));"
+```org
+#+begin_src matlab :exports code :eval never :plot never
+% Your own MATLAB code goes here.
+#+end_src
 ```
 
-A license result of `1` confirms the check passed. Do not enter passwords or
-verification codes into scripts. Initial sign-in can open a window even though
-subsequent calculation and plot generation use the CLI.
+Change only the final `never` after `:plot` to `yes`. Leave `:eval never` alone:
+`:plot yes` is the explicit execution authorization for the dedicated plotting
+command. Ordinary `:OrgPdf` still never executes source blocks.
 
-Run a script you wrote from the directory where its input/output files belong:
+There is no need to type `:file`, an image link, or `exportgraphics` yourself.
+The runner adds a path such as `:file figures/assignment-plot-1.png` to the header
+and `[[file:figures/assignment-plot-1.png]]` after the block after successful
+MATLAB generation. It creates the directory too. Existing explicit `:file`
+paths and image links are respected, not duplicated. `:OrgSnippet plot` is a
+shortcut that starts already opted in, with a placeholder for your own code.
+Restart Neovim after updating the configuration to load these changes.
+
+## What runs and what stays unchanged
+
+- Only top-level MATLAB blocks with literal `:plot yes` run. Disabled, absent,
+  inherited, or commented opt-ins do not run.
+- Enabled blocks run in document order with shared MATLAB variables, like one
+  script. If a later block needs coefficients from an earlier block, enable
+  that earlier block too. Disabled blocks do not initialize variables.
+- Each enabled block must create a figure. The runner saves the current figure
+  at the end of that block. It closes figures before the next block, but keeps
+  the MATLAB variables. A block that only computes and creates no figure will
+  fail rather than silently export a previous plot.
+- The runner does not rewrite MATLAB bodies, calculations, or prose. It only
+  adds missing output-path headers and image links after successful generation.
+  It refuses to publish if the saved document changed while MATLAB was running.
+- Neovim reloads generated links into an untouched buffer. If you edited the
+  buffer during execution, those edits are kept. Reconcile the generated links
+  on disk before saving over them.
+- Setting `:plot never` again disables future execution. It does not remove
+  images or links already generated. Ordinary export will still show them.
+- Execution is not sandboxed. Only run code you trust. The confirmation includes
+  authorization to add image paths and links, not to change computations.
+
+## Verify the image link
+
+After a successful run, the header's `:file figures/assignment-plot-1.png` and
+its `[[file:figures/assignment-plot-1.png]]` link should match exactly, including
+case. Paths are relative to the Org file, not Neovim's working directory, and
+must stay within that document's directory tree. Move the link to choose where
+its figure appears in the PDF. Add `#+CAPTION:` directly before it if desired.
+To choose your own output filename, supply a relative PNG/SVG `:file` header.
+Automatic names use the document stem and top-level MATLAB block ordinal. Once
+a path is written into the header, it remains stable when blocks move.
+
+Inspect both the fresh PNG and the rebuilt PDF. Existing files are not proof
+of a successful new run. Errors stop export, and unsuccessful MATLAB generation
+does not add links. `:OrgPdf` alone cannot generate missing images.
+
+## Existing scripts and manual embedding still work
+
+Keep existing code exactly as written if that is what you want. Run your own
+script separately, then link its saved image and use ordinary `:OrgPdf`:
 
 ```sh
 cd /path/to/assignment
 matlab -batch "run('my_plots.m')"
+~/dotfiles/bin/org-pdf assignment.org
 ```
 
-Your script can save a figure with
-`exportgraphics(fig, 'my_plot.png', 'Resolution', 300)`.
-You choose the computation, figure handle, and filename.
-
-## Workflow A: existing code and images, no automatic execution
-
-This is the appropriate workflow for preserving existing homework code exactly.
-Run your own MATLAB script separately, then link its saved image in the Org file:
-
 ```org
-#+CAPTION: My plot
 [[file:my_plot.png]]
 ```
 
-Keep image paths relative to the Org file and inside its directory tree.
-`:OrgSnippet image` inserts a caption and image link. `:OrgSnippet matlab` inserts
-a display-only MATLAB listing with `:eval never`.
+`:OrgSnippet image` inserts a caption and image link. The direct MATLAB script
+must save its images itself, unlike the automatic Org plot runner.
 
-- `:OrgPdf` saves the Org buffer, embeds existing images, builds the PDF beside
-  the Org file, and opens it.
-- `:OrgPdf!` saves and exports without opening a viewer.
-- Terminal equivalent: `~/dotfiles/bin/org-pdf assignment.org`
+## Installed CLI and sign-in
 
-These commands never execute source blocks. They also do not check whether an
-existing image matches the source listing. PDF embedding is not an inline
-image preview in Neovim.
-
-## Workflow B: explicitly opt into MATLAB execution
-
-Only use this if you choose to make your plotting blocks runnable.
-`:OrgSnippet plot` inserts a template with these headers and a matching link:
-
-```org
-#+begin_src matlab :plot yes :file figures/my_plot.png :exports code :eval yes
-% Your own self-contained plotting code goes here.
-% It must create a figure. This placeholder is not a runnable example.
-#+end_src
-
-[[file:figures/my_plot.png]]
-```
-
-`:OrgPlotPdf` asks for confirmation, executes the opted-in blocks, exports each
-block's current figure to its `:file`, builds the PDF, and opens it.
-`:OrgPlotPdf!` skips opening the viewer, not confirmation or execution.
-Restart Neovim after configuration changes if the command is missing.
+On this machine MATLAB is at `~/Applications/MATLAB/R2026b/bin/matlab`.
+`~/.local/bin/matlab` launches it with `-licmode onlinelicensing` to avoid the
+default licensing startup crash observed here. This is local MATLAB, not MATLAB
+Online. The launcher was created locally, not by the dotfiles bootstrap.
+Other machines need their own installation, license, and MATLAB on PATH.
+`MATLAB_ROOT=/path/to/MATLAB/R2026b` overrides the launcher's installation path.
 
 ```sh
+command -v matlab
+matlab -batch "disp(version); disp(license('test','MATLAB'));"
 ~/dotfiles/bin/org-plot-pdf assignment.org --timeout 300
-# An alternate launcher can be supplied explicitly:
+# Optional alternate launcher:
 ~/dotfiles/bin/org-plot-pdf assignment.org --matlab "$HOME/.local/bin/matlab" --timeout 300
 ```
 
-The CLI is itself explicit execution authorization and has no confirmation
-prompt. `--timeout` is in seconds. Blocks run in document order but in separate
-function workspaces: variables do not carry between blocks. Do not silently
-rewrite an existing document just to satisfy this isolation rule. Use workflow A
-if your own script or original blocks intentionally share state.
+Complete the MathWorks sign-in window if requested. Do not put passwords or
+verification codes in scripts. A license result of `1` confirms the check.
+The CLI has no execution confirmation prompt, so invoking it is authorization.
+`--timeout` is in seconds. A missing command in Neovim normally means to restart
+Neovim after configuration changes.
 
-### Check that generation and linking match
+## Authorship and current HW4 status
 
-1. Save the `.org` file. Run `:OrgSnippet plot` on an empty line, then use Ctrl-j
-   to move through the shared filename, your code, and the caption placeholders.
-2. Ensure the header is `:plot yes :file figures/my_plot.png :eval yes` and the
-   link is `[[file:figures/my_plot.png]]`, with identical spelling and case.
-   The generated figure is placed at the link's location in the PDF.
-3. Supply your own complete code that creates the intended current figure.
-   Do not rely on a previous block's variables. There is no need to manually
-   create the `figures` directory for the runner's automatic export.
-4. Run `:OrgPlotPdf`, choose the run option, and wait for the success message.
-   Check that `figures/my_plot.png` exists beside the document with a fresh
-   modification time, then inspect that figure in the rebuilt PDF.
-5. A missing image error means to check the exact relative link or generate the
-   file first. `:OrgPdf` alone will not generate a missing image. A no-opted-in-
-   blocks error means the document still has display-only headers. Do not
-   change them unless you intend to authorize execution.
+Tool setup and embedding do not authorize rewriting mathematics, variable names,
+algorithms, or numerical choices. Do not add assertions, expected-answer formulas,
+or substitute solutions to an assignment as part of configuring tools. Report
+execution errors separately. Do not substitute Python plots for MATLAB output.
 
-Only literal `:plot yes` selects a MATLAB block. It requires a relative PNG/SVG
-`:file` and must not have `:eval never` or `:eval no`. The runner automatically
-exports the current figure, so extra direct exports are unnecessary in new
-opted-in blocks. MATLAB code is not sandboxed. Run only code you trust.
-An execution failure stops the export. Existing files are not evidence of a
-successful new run. A startup crash or sign-in requirement should be diagnosed
-without altering the assignment's mathematics.
-
-## Current HW4 status
-
-The assignment's `LOCAL-PLOTS-README.md` records its specific state. Original
-computations and prose were restored exactly, with only image links and blank
-lines added. Those original blocks retain `:eval never` and are not opted into
-`:OrgPlotPdf`. Existing linked PNGs came from earlier assistant-modified code,
-not the restored original, so they are not verified outputs of that original.
-Use workflow A until the author chooses what code to run. MATLAB remains
-installed and account sign-in has succeeded.
+The HW4 `LOCAL-PLOTS-README.md` records its specific state. Original calculations
+and prose were restored, with only image links and blank lines added. This
+feature does not opt that document into execution or change its computations.
+Its existing PNGs came from earlier assistant-modified code, not the restored
+original, so they are not verified outputs of that original. Regenerate using
+the exact code you choose before treating images as its results.
