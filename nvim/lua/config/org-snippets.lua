@@ -22,7 +22,12 @@ local function insert(kind)
     vim.api.nvim_buf_set_lines(0, row, row, false, { '' })
     vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
   end
-  vim.snippet.expand(templates[kind])
+  -- Org's indent expression can rewrite inserted lines during expansion.
+  local indentexpr, autoindent = vim.bo.indentexpr, vim.bo.autoindent
+  vim.bo.indentexpr, vim.bo.autoindent = '', false
+  local ok, err = pcall(vim.snippet.expand, templates[kind])
+  vim.bo.indentexpr, vim.bo.autoindent = indentexpr, autoindent
+  if not ok then error(err) end
 end
 vim.api.nvim_create_user_command('OrgSnippet', function(opts)
   insert(opts.args)
