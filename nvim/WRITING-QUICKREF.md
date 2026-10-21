@@ -17,6 +17,7 @@ Open with `nvim paper.org`. Press `Esc` before using the shortcuts below.
 | New write-up | `Space o w n` / `:OrgNew` |
 | Change saved template | `Space o w t` / `:OrgTemplate` |
 | Export and open PDF | `Space o w e` / `:OrgPdf` |
+| Clean build: regenerate enabled plots and PDF | `Space o w r` / `:OrgCleanBuild` |
 | Export without opening viewer | `:OrgPdf!` |
 | Use report style for this export only | `:OrgPdf report` |
 | Fold/unfold current heading | `Tab` |
@@ -67,6 +68,15 @@ run your plotting script separately so its `exportgraphics` calls create the
 PNG files first. Keep assets within the document directory or its subdirectories.
 
 ### Generate MATLAB plots with one toggle
+
+**After changing MATLAB code or rounding, use `Space o w r`**, not `Space o w e`.
+The rebuild command `:OrgCleanBuild` confirms execution, reruns every `:plot yes`
+block from a fresh MATLAB process, regenerates its image, rebuilds the PDF, and
+opens it. `:OrgCleanBuild!` skips opening. It is an alias of `:OrgPlotPdf`, which
+also always regenerates enabled plots. No images are deleted first, and disabled
+blocks are never executed. A MATLAB error stops the build, so fix that error
+before treating existing images as updated. Plain `Space o w e` only exports
+images already on disk and does not apply new rounding to them.
 
 Use `:OrgSnippet matlab`, write your MATLAB code, and change only `:plot never`
 to `:plot yes` when you want a figure. Then run **`:OrgPlotPdf`** and confirm.

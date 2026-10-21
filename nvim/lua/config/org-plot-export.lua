@@ -50,5 +50,11 @@ local function export(open)
   end)
 end
 vim.api.nvim_create_user_command('OrgPlotPdf', function(opts) export(not opts.bang) end,
-  { bang = true, desc = 'Confirm and execute opted-in MATLAB plots, then export PDF' })
+  { bang = true, force = true, desc = 'Confirm and execute opted-in MATLAB plots, then export PDF' })
+-- The runner never uses a graphics cache: every opted-in block is rerun.
+-- "Clean" means regenerate those outputs, not delete images or run disabled code.
+vim.api.nvim_create_user_command('OrgCleanBuild', function(opts) export(not opts.bang) end,
+  { bang = true, force = true, desc = 'Regenerate all enabled MATLAB graphics and rebuild PDF' })
+vim.keymap.set('n', '<leader>owr', '<cmd>OrgCleanBuild<cr>',
+  { desc = 'Clean build: regenerate plots and PDF' })
 return { export = export }

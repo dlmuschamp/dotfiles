@@ -13,7 +13,7 @@ local function main()
     '#+end_src',
     '* First enabled figure',
     '#+begin_src matlab :exports code :eval never :plot yes',
-    'x = linspace(0, 2*pi, 101);',
+    'x = round(linspace(0, 2*pi, 101), 2);',
     'figure;',
     'plot(x, sin(x));',
     '#+end_src',
@@ -36,7 +36,7 @@ local function main()
     end
     print(tostring(message))
   end
-  vim.cmd('OrgPlotPdf!')
+  vim.cmd('OrgCleanBuild!')
   assert(vim.wait(180000, function() return complete or failure end, 100), 'MATLAB workflow timed out')
   vim.ui.select, vim.notify = old_select, old_notify
   assert(not failure, failure)

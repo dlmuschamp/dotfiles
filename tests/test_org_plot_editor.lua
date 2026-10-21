@@ -4,6 +4,10 @@ local function main()
   local path = assert(vim.env.JCODE_SCRATCH_DIR) .. '/org-plot-editor-test.org'
   vim.cmd.edit(vim.fn.fnameescape(path))
   assert(vim.fn.exists(':OrgPlotPdf') == 2, 'Default command not registered')
+  assert(vim.fn.exists(':OrgCleanBuild') == 2, 'Clean-build command not registered')
+  local rebuild = vim.fn.maparg('<leader>owr', 'n', false, true)
+  assert(rebuild.rhs == '<Cmd>OrgCleanBuild<CR>' or rebuild.rhs == '<cmd>OrgCleanBuild<cr>',
+    'Writing clean-build shortcut not registered')
   local old_select, old_system = vim.ui.select, vim.system
   local calls = {}
   local callbacks = {}
@@ -12,12 +16,12 @@ local function main()
     callbacks[#callbacks + 1] = callback
   end
   vim.ui.select = function(items, _, callback) callback(items[1]) end
-  vim.cmd('OrgPlotPdf!')
+  vim.cmd('OrgCleanBuild!')
   assert(#calls == 0, 'Cancel executed a subprocess')
   vim.ui.select = function(items, _, callback) callback(items[2]) end
   vim.cmd('OrgPlotPdf!')
   assert(#calls == 1 and calls[1][2] == path and #calls[1] == 2)
-  vim.cmd('OrgPlotPdf')
+  vim.cmd('OrgCleanBuild')
   assert(#calls == 2 and calls[2][3] == '--open')
   -- Simulate the runner adding a link, without running MATLAB.
   local generated = vim.fn.readfile(path)

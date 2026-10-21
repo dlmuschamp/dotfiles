@@ -19,6 +19,7 @@ All keys below are in **normal mode**. `<leader>` is Space.
 | `Space o w n` / `:OrgNew` | Choose a template, filename, and title for a new Org document |
 | `Space o w t` / `:OrgTemplate` | Choose a different PDF template for the current document |
 | `Space o w e` / `:OrgPdf` | Save, export PDF beside the Org file, and open it |
+| `Space o w r` / `:OrgCleanBuild` | Confirm, regenerate enabled MATLAB graphics, rebuild PDF, and open it |
 | `:OrgPdf!` | Save and export without opening a viewer |
 | `:OrgPdf report` | Export once using a particular template |
 | `Space o w i` / `:OrgTemplateImport` | Import a local Pandoc Typst template |
@@ -100,6 +101,12 @@ configuration to load the new parser setup.
 
 See [the MATLAB plotting guide](../docs/matlab-org-plots.md) for local CLI setup,
 account sign-in, and both supported workflows. MATLAB Online is not needed.
+
+Use `Space o w r` / `:OrgCleanBuild` after editing MATLAB or rounding. It always
+reruns all `:plot yes` blocks, then rebuilds the PDF. `:OrgCleanBuild!` skips the
+viewer. This is an explicit alias of `:OrgPlotPdf`, not a deletion command.
+Disabled blocks remain disabled. `Space o w e` only exports existing images.
+Execution errors stop regeneration and must be fixed before plots are current.
 
 - Preserve existing code: run your own `.m` script with
   `matlab -batch "run('my_plots.m')"`, link its PNG using `[[file:my_plot.png]]`,

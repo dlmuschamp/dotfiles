@@ -35,6 +35,20 @@ Restart Neovim after updating the configuration to load these changes.
 
 ## What runs and what stays unchanged
 
+### Clean graphics rebuild versus ordinary PDF export
+
+After changing calculations, display settings, or rounding, press **Space o w r**
+or run **`:OrgCleanBuild`** and confirm. It starts fresh MATLAB execution of all
+`:plot yes` blocks and regenerates their graphics, then rebuilds and opens the
+PDF. `:OrgCleanBuild!` does the same without opening a viewer. The command is an
+explicit alias of `:OrgPlotPdf`, which already regenerates on every run.
+
+**Space o w e / `:OrgPdf` only exports existing images.** It cannot apply a
+changed `round(..., 2)` expression to PNGs already on disk. If MATLAB fails,
+fix the reported code error before considering old images updated. Clean build
+does not delete existing files first or execute disabled blocks. It does not
+insert, remove, or alter rounding in your MATLAB code.
+
 - Only top-level MATLAB blocks with literal `:plot yes` run. Disabled, absent,
   inherited, or commented opt-ins do not run.
 - Enabled blocks run in document order with shared MATLAB variables, like one
