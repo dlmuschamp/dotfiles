@@ -213,7 +213,24 @@ def export(document, matlab='matlab', timeout=120, open_pdf=False):
         script = Path(script_file.name)
         calls = ["set(groot, 'defaultFigureVisible', 'off');"]
         for i, ((body, _), output) in enumerate(zip(blocks, outputs)):
-            calls.append("close all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\norg_plot_figure = get(groot, 'CurrentFigure');\nif isempty(org_plot_figure)\nerror('org_plot:noFigure', 'Plot block did not create a figure');\nend\nexportgraphics(org_plot_figure, %s);\n" % (body, quote(output)))
+            calls.append("close all force;\nset(groot, 'defaultFigureVisible', 'off');\n%s\norg_plot_figure = get(groot, 'CurrentFigure');\nif isempty(org_plot_figure)\nerror('org_plot:noFigure', 'Plot block did not create a figure');\nend\n" % body)
+            # Style generated output, never rewrite the authored MATLAB body.
+            calls.append("""set(org_plot_figure, 'Color', 'k', 'InvertHardcopy', 'off');
+org_plot_axes = findall(org_plot_figure, 'Type', 'axes');
+for org_plot_axis = org_plot_axes(:)'
+    set(org_plot_axis, 'Color', 'k', 'XColor', 'w', 'YColor', 'w', ...
+        'ZColor', 'w', 'GridColor', [0.65 0.65 0.65], 'GridAlpha', 0.35);
+    set(org_plot_axis, 'FontSize', max(12, get(org_plot_axis, 'FontSize')));
+end
+org_plot_text = findall(org_plot_figure, 'Type', 'text');
+for org_plot_label = org_plot_text(:)'
+    set(org_plot_label, 'Color', 'w');
+end
+org_plot_legends = findall(org_plot_figure, 'Type', 'legend');
+set(org_plot_legends, 'Color', 'k', 'TextColor', 'w', 'EdgeColor', 'w');
+drawnow;
+""")
+            calls.append("exportgraphics(org_plot_figure, %s, 'BackgroundColor', 'k', 'Resolution', 200);\n" % quote(output))
         script.write_text('\n'.join(calls))
         run_matlab([executable, '-batch', 'run(%s)' % quote(script)], root, timeout)
         for output in outputs:

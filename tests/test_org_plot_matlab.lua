@@ -71,7 +71,28 @@ local function main()
     if line:match('%simage%s') then count = count + 1 end
   end
   assert(count == 2, 'Expected two embedded MATLAB images, got ' .. count)
-  print('PASS: real Neovim, licensed MATLAB, disabled-block safety, shared variables, automatic PNGs/links, body preservation, buffer reload, two PDF images')
+  -- Exercise an actual clean rebuild, with one missing and one stale image.
+  local missing = root .. '/figures/toggle-check-plot-2.png'
+  local stale = root .. '/figures/toggle-check-plot-3.png'
+  assert(vim.uv.fs_unlink(missing))
+  vim.fn.writefile({ 'stale image must be replaced' }, stale)
+  complete, failure = false, nil
+  vim.ui.select = function(items, _, callback) callback(items[2]) end
+  vim.notify = function(message, level, opts)
+    if opts and opts.title == 'Org plot export' then
+      if level == vim.log.levels.ERROR then failure = tostring(message) end
+      if tostring(message):find(pdf, 1, true) then complete = true end
+    end
+    print(tostring(message))
+  end
+  vim.cmd('OrgCleanBuild!')
+  assert(vim.wait(180000, function() return complete or failure end, 100), 'Clean rebuild timed out')
+  vim.ui.select, vim.notify = old_select, old_notify
+  assert(not failure, failure)
+  assert(vim.fn.getfsize(missing) > 1000, 'Clean rebuild did not regenerate missing figure')
+  assert(vim.fn.getfsize(stale) > 1000, 'Clean rebuild reused stale figure')
+  assert(vim.deep_equal(disk, vim.fn.readfile(path)), 'Clean rebuild changed document')
+  print('PASS: real Neovim, licensed MATLAB, disabled-block safety, shared variables, automatic PNGs/links, body preservation, buffer reload, two PDF images, missing and stale figure regeneration')
 end
 local ok, err = xpcall(main, debug.traceback)
 if not ok then print(err); vim.cmd('cquit 1') else vim.cmd('qa!') end

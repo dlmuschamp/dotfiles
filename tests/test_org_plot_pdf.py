@@ -100,7 +100,11 @@ class PlotTests(unittest.TestCase):
         self.assertEqual(self.script.count("get(groot, 'CurrentFigure')"), 2)
         self.assertEqual(self.script.count('if isempty(org_plot_figure)'), 2)
         self.assertIn("error('org_plot:noFigure'", self.script)
-        for path in re.findall(r"exportgraphics\(org_plot_figure, '((?:[^']|'')*)'\)", self.script):
+        self.assertIn("'Color', 'k', 'InvertHardcopy', 'off'", self.script)
+        self.assertIn("'XColor', 'w', 'YColor', 'w'", self.script)
+        self.assertIn("set(org_plot_label, 'Color', 'w')", self.script)
+        self.assertIn("'BackgroundColor', 'k', 'Resolution', 200", self.script)
+        for path in re.findall(r"exportgraphics\(org_plot_figure, '((?:[^']|'')*)', 'BackgroundColor'", self.script):
             Path(path.replace("''", "'")).write_bytes(b'new plot')
 
     def test_success_arguments_workspaces_staging_and_open(self):
