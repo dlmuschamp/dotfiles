@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "bin" / "org-pdf"
@@ -57,7 +58,7 @@ class CliTests(unittest.TestCase):
         return process
 
     def test_template_listing_and_import_no_overwrite(self):
-        self.assertEqual(self.cli('--list-templates').stdout.splitlines(), ['essay', 'notes', 'report'])
+        self.assertEqual(self.cli('--list-templates').stdout.splitlines(), ['essay', 'math', 'mla', 'notes', 'report', 'technical'])
         template = self.directory / 'my template.typ'
         template.write_text('#set text(size: 10pt)\n$body$\n')
         self.cli('--import-template', template, '--name', 'custom')
@@ -124,7 +125,7 @@ $ vec(1, 2) $
 printf evil > "''' + str(sentinel) + '''"
 #+end_src
 ''')
-        for template in ('essay', 'report', 'notes'):
+        for template in ('essay', 'math', 'mla', 'notes', 'report', 'technical'):
             output = self.directory / (template + ' output.pdf')
             self.cli(self.source, '--template', template, '--output', output)
             self.assertTrue(output.read_bytes().startswith(b'%PDF-'))
@@ -133,8 +134,82 @@ printf evil > "''' + str(sentinel) + '''"
                 self.assertIn(expected, text)
             self.assertNotIn('sum_', text)
             self.assertNotIn('integral_', text)
+            if template == 'mla':
+                self.assertIn('Muschamp 1', text)
             self.assertFalse(sentinel.exists())
         self.assertFalse(list(self.directory.glob('.org-pdf-*')))
+
+    @unittest.skipUnless(shutil.which('pandoc') and Path('/usr/bin/typst').exists() and shutil.which('pdftotext'), 'requires real converters and pdftotext')
+    def test_real_new_starters(self):
+        samples = {
+            'mla': ('Reading a Changing Landscape', 'Works Cited', 'Shelley'),
+            'math': ('A Finite Sum and Its Proof', 'Proof', '(1)', '(2)'),
+            'technical': ('Measuring a Small Data Pipeline', 'def mean', 'Input count'),
+        }
+        for name, expected in samples.items():
+            with self.subTest(template=name):
+                output = self.directory / (name + '.pdf')
+                self.cli(ROOT / 'typst/org/starters' / (name + '.org'), '--output', output)
+                text = subprocess.check_output(['pdftotext', str(output), '-'], text=True)
+                for value in (*expected, 'Alex Rivera', 'Professor Morgan', '201', 'October 20, 2026'):
+                    self.assertIn(value, text)
+
+    @unittest.skipUnless(shutil.which('pandoc') and Path('/usr/bin/typst').exists() and shutil.which('pdftotext') and shutil.which('pdffonts'), 'requires real converters and Poppler tools')
+    def test_mla_measured_layout_and_works_cited(self):
+        # Explicit line breaks make PDF text boxes a stable baseline-spacing probe.
+        self.source.write_text('''#+TITLE: Plain Centered Title
+#+AUTHOR: Alex Rivera
+#+SURNAME: Rivera
+#+INSTRUCTOR: Professor Morgan
+#+COURSE: English 201
+#+DATE: October 20, 2026
+#+PDF_TEMPLATE: mla
+#+OPTIONS: toc:nil
+
+#+begin_export typst
+BaselineOne \\
+BaselineTwo \\
+BaselineThree
+
+#works-cited[
+CitationStart. A deliberately long bibliographic entry with enough words to wrap onto a second line and demonstrate the hanging indent applied to every continuation line of the entry. CitationEnd.
+]
+#+end_export
+''')
+        output = self.directory / 'measured.pdf'
+        self.cli(self.source, '--output', output)
+        fonts = subprocess.check_output(['pdffonts', str(output)], text=True)
+        self.assertIn('LiberationSerif', fonts)
+        self.assertNotIn('LiberationSerif-Bold', fonts)
+        bbox = subprocess.check_output(['pdftotext', '-bbox', str(output), '-'], text=True)
+        tree = ET.fromstring(bbox)
+        ns = {'x': 'http://www.w3.org/1999/xhtml'}
+        pages = tree.findall('.//x:page', ns)
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(float(pages[0].get('width')), 612)
+        self.assertEqual(float(pages[0].get('height')), 792)
+        words = pages[0].findall('.//x:word', ns)
+        def word(value, source=words):
+            return next(item for item in source if item.text == value)
+        probes = [word(value) for value in ('BaselineOne', 'BaselineTwo', 'BaselineThree')]
+        for left, right in zip(probes, probes[1:]):
+            self.assertAlmostEqual(float(right.get('yMin')) - float(left.get('yMin')), 24, delta=0.05)
+        self.assertAlmostEqual(float(probes[0].get('xMin')), 108, delta=0.1)
+        metadata = [word(value) for value in ('Alex', 'Professor', 'English', 'October')]
+        for left, right in zip(metadata, metadata[1:]):
+            self.assertAlmostEqual(float(right.get('yMin')) - float(left.get('yMin')), 24, delta=0.05)
+        self.assertAlmostEqual(float(metadata[0].get('xMin')), 72, delta=0.1)
+        self.assertAlmostEqual((float(word('Plain').get('xMin')) + float(word('Title').get('xMax'))) / 2, 306, delta=0.1)
+        header = word('Rivera')
+        self.assertAlmostEqual(float(header.get('yMin')), 36, delta=3)
+        self.assertAlmostEqual(float(word('1').get('xMax')), 540, delta=0.1)
+        cited = pages[1].findall('.//x:word', ns)
+        self.assertIn('Works', [item.text for item in cited])
+        first = word('CitationStart.', cited)
+        self.assertAlmostEqual(float(first.get('xMin')), 72, delta=0.1)
+        continuation_y = min(float(item.get('yMin')) for item in cited if float(item.get('yMin')) > float(first.get('yMin')) + 1)
+        continuation = [item for item in cited if abs(float(item.get('yMin')) - continuation_y) < 0.1]
+        self.assertAlmostEqual(min(float(item.get('xMin')) for item in continuation), 108, delta=0.1)
 
     @unittest.skipUnless(shutil.which('pandoc') and Path('/usr/bin/typst').exists(), 'requires real converters')
     def test_atomic_failure_and_metadata_selector(self):

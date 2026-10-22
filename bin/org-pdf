@@ -175,7 +175,7 @@ def header_metadata(text):
             continue
         if re.match(r"^\*+[ \t]", line):
             break
-        keyword = re.fullmatch(r"[ \t]*#\+(PDF_TEMPLATE|INSTRUCTOR|COURSE):[ \t]*(.*?)[ \t]*", line, re.I)
+        keyword = re.fullmatch(r"[ \t]*#\+(PDF_TEMPLATE|INSTRUCTOR|COURSE|SURNAME):[ \t]*(.*?)[ \t]*", line, re.I)
         if keyword:
             key, value = keyword.groups()
             metadata[key.lower().replace("_", "-")] = value
@@ -253,7 +253,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix=".org-pdf-", dir=output.parent) as directory:
             temporary = Path(directory)
             command = [pandoc, "--from=org", "--to=typst", "--standalone", "--preserve-tabs", "--tab-stop=4", "--template", str(available[selected]), "--lua-filter", str(ASSETS / "native-math.lua"), "--lua-filter", str(ASSETS / "code.lua"), "--lua-filter", str(ASSETS / "images.lua")]
-            for key in ("instructor", "course"):
+            for key in ("instructor", "course", "surname"):
                 if key in metadata:
                     command += ["--metadata", key + "=" + metadata[key]]
             generated = run(command, input=prepare(text), cwd=source.parent)

@@ -1,0 +1,23 @@
+#+TITLE: A Finite Sum and Its Proof
+#+AUTHOR: Alex Rivera
+#+INSTRUCTOR: Professor Morgan
+#+COURSE: Mathematics 201
+#+DATE: October 20, 2026
+#+PDF_TEMPLATE: math
+#+OPTIONS: toc:nil
+
+* Claim
+For a positive integer $n$, the first $n$ integers satisfy the identity
+
+$ sum_(k=1)^n k = (n(n+1))/2 $
+
+* Proof
+Pair the first and last terms. Each pair has sum $n+1$, so adding the
+sequence to its reversal gives
+
+$ 2 sum_(k=1)^n k = n(n+1) $
+
+Dividing by two proves the claim.
+
+* Check
+For $n=4$, the sum is $1+2+3+4=10$, which agrees with $(4 dot 5)/2$.

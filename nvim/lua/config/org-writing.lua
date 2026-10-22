@@ -6,9 +6,12 @@ local function notify(message, level)
 end
 
 -- Resolve from the tracked config, so a freshly bootstrapped machine works too.
+local function repo_root()
+  return vim.fn.fnamemodify(vim.uv.fs_realpath(vim.fn.stdpath("config")), ":h")
+end
+
 local function exporter()
-  local root = vim.fn.fnamemodify(vim.uv.fs_realpath(vim.fn.stdpath("config")), ":h")
-  local script = root .. "/bin/org-pdf"
+  local script = repo_root() .. "/bin/org-pdf"
   return vim.fn.executable(script) == 1 and script or "org-pdf"
 end
 
@@ -82,6 +85,29 @@ function M.set_template(name)
   end
 end
 
+function M.starter_lines(template, title)
+  local date = template == "mla" and (tonumber(os.date("%d")) .. os.date(" %B %Y")) or os.date("%B %d, %Y")
+  local starter = repo_root() .. "/typst/org/starters/" .. template .. ".org"
+  if vim.fn.filereadable(starter) == 1 then
+    local lines = vim.fn.readfile(starter)
+    for i, line in ipairs(lines) do
+      if line:match("^#%+TITLE:") then lines[i] = "#+TITLE: " .. title end
+      if line:match("^#%+DATE:") then lines[i] = "#+DATE: " .. date end
+    end
+    return lines
+  end
+  return {
+    "#+TITLE: " .. title,
+    "#+AUTHOR: Damian Luciano Muschamp",
+    "#+DATE: " .. date,
+    "#+PDF_TEMPLATE: " .. template,
+    "#+INSTRUCTOR: Instructor Name",
+    "#+COURSE: Course Name",
+    "#+OPTIONS: toc:nil num:nil",
+    "", "* Introduction", "", "",
+  }
+end
+
 function M.new_document()
   M.choose_template(function(template)
     vim.ui.input({ prompt = "New Org file: ", default = vim.fn.getcwd() .. "/", completion = "file" }, function(path)
@@ -107,20 +133,13 @@ function M.new_document()
           return notify("File was created while the prompt was open", vim.log.levels.WARN)
         end
         vim.cmd.edit(vim.fn.fnameescape(path))
-        vim.api.nvim_buf_set_lines(0, 0, -1, false, {
-          "#+TITLE: " .. answer,
-          "#+AUTHOR: Damian Luciano Muschamp",
-          "#+DATE: " .. os.date("%B %d, %Y"),
-          "#+PDF_TEMPLATE: " .. template,
-          "#+INSTRUCTOR: Instructor Name",
-          "#+COURSE: Course Name",
-          "#+OPTIONS: toc:nil num:nil",
-          "",
-          "* Introduction",
-          "",
-          "",
-        })
-        vim.api.nvim_win_set_cursor(0, { 10, 0 })
+        local lines = M.starter_lines(template, answer)
+        vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+        local first_body = 1
+        for i, line in ipairs(lines) do
+          if line ~= "" and not line:match("^#") then first_body = i; break end
+        end
+        vim.api.nvim_win_set_cursor(0, { first_body, 0 })
         notify("Write your text, then :OrgPdf. Use $...$ for Typst math.")
       end)
     end)

@@ -1,0 +1,31 @@
+#+TITLE: Measuring a Small Data Pipeline
+#+AUTHOR: Alex Rivera
+#+INSTRUCTOR: Professor Morgan
+#+COURSE: Computing 201
+#+DATE: October 20, 2026
+#+PDF_TEMPLATE: technical
+#+OPTIONS: toc:nil
+
+* Objective
+Describe a reproducible transformation from input readings to a mean value.
+The example code is printed as documentation and is not executed on export.
+
+* Implementation
+#+begin_src python :exports code :eval never
+def mean(readings):
+    if not readings:
+        raise ValueError("at least one reading is required")
+    return sum(readings) / len(readings)
+#+end_src
+
+* Results
+| Input count | Mean |
+|-------------+------|
+|           3 |  2.0 |
+|           4 |  2.5 |
+
+The arithmetic mean is $overline(x) = (sum_(i=1)^n x_i)/n$.
+
+* Limitations
+These small examples check arithmetic, not measurement accuracy. Replace
+the data and describe uncertainty before drawing conclusions.

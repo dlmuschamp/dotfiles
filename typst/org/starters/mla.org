@@ -1,0 +1,30 @@
+#+TITLE: Reading a Changing Landscape
+#+AUTHOR: Alex Rivera
+#+SURNAME: Rivera
+#+INSTRUCTOR: Professor Morgan
+#+COURSE: English 201
+#+DATE: October 20, 2026
+#+PDF_TEMPLATE: mla
+#+OPTIONS: toc:nil
+
+* Introduction
+A landscape in a story is more than scenery. The details a narrator notices
+can reveal what a community values and what it fears losing. Close reading
+begins by connecting those details to the language of the passage.
+
+* Analysis
+Compare the opening description with the final scene. Repeated images can
+show a change in perspective even when the setting itself remains familiar.
+Support each interpretation with a specific passage and a citation from the
+edition used in class.
+
+* Conclusion
+Reading the setting alongside the narrator's choices makes the argument
+more precise. Revise this document with your own text and bibliographic entries.
+
+#+begin_export typst
+#works-cited[
+Shelley, Mary. #emph[Frankenstein; or, The Modern Prometheus]. Lackington,
+Hughes, Harding, Mavor & Jones, 1818.
+]
+#+end_export
